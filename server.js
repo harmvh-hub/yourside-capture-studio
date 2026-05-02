@@ -12,7 +12,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION = '2.9';
+const VERSION = '2.10';
 const PORT           = process.env.PORT           || 3000;
 const RECORDINGS_DIR = process.env.RECORDINGS_DIR || path.join(__dirname, 'recordings');
 const EXPORTS_DIR    = process.env.EXPORTS_DIR    || path.join(__dirname, 'exports');

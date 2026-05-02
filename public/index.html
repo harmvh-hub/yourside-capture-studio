@@ -132,7 +132,7 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
 .livebadge{position:absolute;top:20px;left:20px;background:var(--red);color:#fff;font-family:var(--mono);font-size:10px;padding:3px 7px;border-radius:4px;display:none;align-items:center;gap:5px}
 .livebadge.show{display:flex}
 .livebadge::before{content:'';width:5px;height:5px;border-radius:50%;background:#fff;animation:blink 1s ease-in-out infinite}
-.tcov{position:absolute;top:20px;right:20px;background:rgba(0,0,0,.75);color:var(--green);font-family:var(--mono);font-size:12px;padding:4px 9px;border-radius:4px;pointer-events:none;z-index:10}
+.tcov{position:absolute;top:20px;right:20px;background:rgba(0,0,0,.75);color:var(--green);font-family:var(--mono);font-size:24px;padding:6px 14px;border-radius:4px;pointer-events:none;z-index:10}
 
 /* TIMELINE */
 .tlarea{background:var(--bg2);border-top:1px solid var(--border);padding:12px 16px;flex-shrink:0}
@@ -636,6 +636,7 @@ const hms  = s=>{ if(!isFinite(s)||s<0)return'00:00:00'; return`${pad(Math.floor
 const smtc = s=>{ if(!isFinite(s)||s<0)return'00:00:00:00'; return`${hms(s)}:${pad(Math.floor((s%1)*FPS))}`; };
 const todTC= ()=>{ const n=new Date(); return`${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}:${pad(Math.floor(n.getMilliseconds()/1000*FPS))}`; };
 const livTC= ()=>tcMode==='tod'?todTC():smtc((Date.now()-tcRecStart)/1000);
+const livPausedTC=()=>{ const t=vid.currentTime||0; if(tcMode==='tod'){ const d=new Date(tcRecStart+t*1000); return`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}:${pad(Math.floor(d.getMilliseconds()/1000*FPS))}`; } return smtc(t); };
 const fsz  = b=>b<1e6?(b/1024).toFixed(1)+' KB':b<1e9?(b/1e6).toFixed(1)+' MB':(b/1e9).toFixed(2)+' GB';
 
 function toast(msg,type=''){
@@ -1015,7 +1016,7 @@ async function selRec(id,live){
     requestAnimationFrame(()=>{ buildBars(); buildRuler(); updateMk(); updPt(); });
     document.getElementById('liveprog').style.width='0%';
     // Live timecode tick loop — shows livTC() while playing, clip position when paused
-    (function tick(){ if(!isLive||activeRecId!==id)return; const tc=vid.paused?smtc(vid.currentTime||0):livTC(); document.getElementById('tcdis').textContent=tc; document.getElementById('tcov').textContent=tc; requestAnimationFrame(tick); })();
+    (function tick(){ if(!isLive||activeRecId!==id)return; const tc=vid.paused?livPausedTC():livTC(); document.getElementById('tcdis').textContent=tc; document.getElementById('tcov').textContent=tc; requestAnimationFrame(tick); })();
     // Fallback server poll for duration
     liveInt=setInterval(async()=>{
       const d=await api('GET','/api/probe/'+id);
@@ -1024,6 +1025,8 @@ async function selRec(id,live){
   } else {
     // Finished MP4 — serve via range-request stream
     vid.src='/stream/'+id; vid.load();
+    document.getElementById('tcdis').textContent=smtc(0);
+    document.getElementById('tcov').textContent=smtc(0);
     const d=await api('GET','/api/probe/'+id);
     dur=d.duration||0; inPt=0; outPt=dur; zoom=1; pan=0;
     requestAnimationFrame(()=>{ buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); });
