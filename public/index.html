@@ -527,6 +527,18 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
   </div>
 </div>
 
+<!-- PURGE CONFIRM MODAL -->
+<div class="modalbg" id="purgeModal">
+  <div class="modal">
+    <h3>⚠ Permanent Delete</h3>
+    <p id="purgeModalMsg" style="font-size:13px;color:var(--text2);margin-bottom:16px;line-height:1.5"></p>
+    <div class="frow" style="margin-top:4px">
+      <button class="btn bghost bfull" onclick="closeModal('purgeModal')">Cancel</button>
+      <button class="btn bdanger bfull" id="purgeConfirmBtn">Delete</button>
+    </div>
+  </div>
+</div>
+
 <!-- SAVE CLIP MODAL -->
 <div class="modalbg" id="saveModal">
   <div class="modal">
@@ -751,17 +763,23 @@ async function forceDeleteRec(id,name,clipCount){
   loadStorageView(); loadRecs(); loadSidebarClips();
 }
 
-async function purgeRecordings(includeExports){
-  const what=includeExports?'ALL recordings AND all exported clip files':'all recordings (exported clip files will be kept)';
-  if(!confirm(`⚠ PERMANENTLY DELETE ${what.toUpperCase()}?
-
-This cannot be undone. Saved clip metadata in the database will be kept but source files will be gone.`))return;
-  if(!confirm('Are you absolutely sure? This will delete everything.'))return;
-  const r=await api('POST','/api/recordings/purge-all',{includeExports});
+let _purgeIncludeExports=false;
+function purgeRecordings(includeExports){
+  _purgeIncludeExports=includeExports;
+  const what=includeExports
+    ?'ALL recordings AND all exported clip files'
+    :'all recordings (exported clip files will be kept)';
+  document.getElementById('purgeModalMsg').textContent=
+    `Permanently delete ${what}? This cannot be undone. Clip metadata in the database will be kept but source files will be gone.`;
+  document.getElementById('purgeConfirmBtn').onclick=confirmPurge;
+  document.getElementById('purgeModal').classList.add('show');
+}
+async function confirmPurge(){
+  closeModal('purgeModal');
+  const r=await api('POST','/api/recordings/purge-all',{includeExports:_purgeIncludeExports});
   if(r.error){toast(r.error,'err');return;}
-  toast(`Deleted ${r.deletedRecs} recording(s)${includeExports?' and '+r.deletedExports+' export(s)':''}`,'ok');
+  toast(`Deleted ${r.deletedRecs} recording(s)${_purgeIncludeExports?' and '+r.deletedExports+' export(s)':''}`,'ok');
   loadStorageView(); loadRecs(); loadSidebarClips();
-  // Reset editor if active
   activeRecId=null; isLive=false; dur=0;
   vid.style.display='none';
   document.getElementById('vph').style.display='';
