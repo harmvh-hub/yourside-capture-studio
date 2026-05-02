@@ -1,0 +1,12 @@
+{
+  "name": "yourside-capture-studio",
+  "version": "2.1.0",
+  "description": "YourSide SRT Capture Studio",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --experimental-sqlite server.js",
+    "dev": "node --experimental-sqlite --watch server.js"
+  },
+  "engines": { "node": ">=22.0.0" },
+  "license": "MIT"
+}

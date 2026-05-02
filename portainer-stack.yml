@@ -1,0 +1,43 @@
+version: "3.9"
+
+# YourSide Capture Studio — Portainer Stack
+# 1. SSH into OVH server
+# 2. cd ~/srt-recorder && docker build --no-cache -t harmvh/srt-capture-studio:latest .
+# 3. Paste this file in Portainer → Stacks → Add Stack → Deploy
+
+services:
+  srt-studio:
+    image: harmvh/srt-capture-studio:latest
+    container_name: srt-capture-studio
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - srt_recordings:/data/recordings
+      - srt_exports:/data/exports
+      - srt_db:/data/db
+    environment:
+      PORT: "3000"
+      RECORDINGS_DIR: /data/recordings
+      EXPORTS_DIR: /data/exports
+      DATA_DIR: /data/db
+    deploy:
+      resources:
+        limits:
+          memory: 2048M
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/version || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  srt_recordings:
+    driver: local
+  srt_exports:
+    driver: local
+  srt_db:
+    driver: local

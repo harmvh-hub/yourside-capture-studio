@@ -1,0 +1,1300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YourSide Capture Studio</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.7/hls.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0f14;--bg2:#131720;--bg3:#1a1f2e;--bg4:#222840;
+  --border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.13);
+  --text:#dde3f0;--text2:#7a8aaa;--text3:#404a66;
+  --accent:#e8500a;--accent2:#ff6b25;--adim:rgba(232,80,10,.15);
+  --green:#2ed8a0;--gdim:rgba(46,216,160,.12);--red:#e05050;--amber:#f0b429;
+  --r:5px;--r2:9px;--mono:'IBM Plex Mono',monospace;--sans:'Rajdhani',sans-serif;
+  --hh:54px;--sw:300px;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15px;overflow:hidden}
+
+/* LOGIN */
+#loginScreen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999}
+.lcard{background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:36px 42px;width:360px}
+.llogo{text-align:center;margin-bottom:22px}
+.llogo img{height:44px;filter:drop-shadow(0 0 16px rgba(232,80,10,.45))}
+.llogo-fb{font-size:22px;font-weight:700;color:var(--accent)}
+.lsub,.lver{text-align:center;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text3);margin-top:3px}
+.lf{display:flex;flex-direction:column;gap:4px;margin-bottom:11px}
+.lf label{font-size:10px;font-family:var(--mono);color:var(--text2);text-transform:uppercase;letter-spacing:.06em}
+.lf input{background:var(--bg4);border:1px solid var(--border2);border-radius:var(--r);padding:9px 12px;color:var(--text);font-family:var(--mono);font-size:13px;outline:none;width:100%;transition:border-color .15s}
+.lf input:focus{border-color:var(--accent)}
+.lerr{color:var(--red);font-size:11px;min-height:16px;margin-bottom:5px;font-family:var(--mono)}
+.lbtn{background:var(--accent);color:#fff;border:none;border-radius:var(--r);padding:11px;width:100%;font-family:var(--sans);font-size:15px;font-weight:700;cursor:pointer;transition:background .15s;margin-top:5px}
+.lbtn:hover{background:var(--accent2)}
+
+/* APP */
+#app{display:none;flex-direction:column;height:100vh}
+#app.show{display:flex}
+
+/* HEADER */
+.hdr{height:var(--hh);display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.hlogo{display:flex;align-items:center;gap:8px}
+.hlogo img{height:24px}
+.hlogo-fb{font-size:14px;font-weight:700;color:var(--accent)}
+.hdiv{width:1px;height:18px;background:var(--border2)}
+.htitle{font-size:11px;font-weight:600;letter-spacing:.07em;color:var(--text2);text-transform:uppercase}
+.hver{font-size:10px;font-family:var(--mono);color:var(--text3);margin-left:3px}
+.hsp{flex:1}
+.hbtn{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:var(--r);background:transparent;border:1px solid var(--border);color:var(--text2);cursor:pointer;font-family:var(--sans);font-size:12px;font-weight:600;transition:all .15s;white-space:nowrap}
+.hbtn:hover{background:var(--bg3);color:var(--text);border-color:var(--border2)}
+.hbtn.on{background:var(--adim);border-color:var(--accent);color:var(--accent)}
+.uchip{display:flex;align-items:center;gap:5px;padding:4px 9px;background:var(--bg3);border:1px solid var(--border);border-radius:100px;font-size:11px;font-family:var(--mono);color:var(--text2)}
+.udot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.spill{display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:100px;background:var(--bg3);border:1px solid var(--border);font-family:var(--mono);font-size:10px;color:var(--text2)}
+.sd{width:6px;height:6px;border-radius:50%;background:var(--text3);transition:all .3s}
+.sd.recording{background:var(--red);box-shadow:0 0 8px var(--red);animation:blink 1.2s ease-in-out infinite}
+.sd.ready{background:var(--green)}
+.sd.finalising{background:var(--amber);animation:blink 1s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* LAYOUT */
+.main{display:flex;flex:1;overflow:hidden}
+
+/* SIDEBAR */
+.sb{width:var(--sw);display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--bg2);flex-shrink:0;overflow:hidden}
+.sbs{padding:12px 14px;border-bottom:1px solid var(--border);flex-shrink:0}
+.sbt{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);margin-bottom:8px;display:flex;align-items:center}
+.sbt span{flex:1}
+.psel{width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:6px 9px;color:var(--text);font-family:var(--mono);font-size:11px;outline:none;margin-bottom:8px}
+.psel option{background:var(--bg3)}
+.proj-card{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);padding:10px 12px}
+.proj-card-name{font-size:14px;font-weight:700;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.proj-card-srt{font-size:10px;color:var(--text3);font-family:var(--mono);margin-bottom:8px;word-break:break-all}
+.proj-btn-row{display:flex;gap:6px}
+
+/* BTN system */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:6px 12px;border-radius:var(--r);border:none;cursor:pointer;font-family:var(--sans);font-size:13px;font-weight:600;transition:all .15s}
+.bprimary{background:var(--accent);color:#fff}.bprimary:hover{background:var(--accent2)}
+.bdanger{background:rgba(224,80,80,.12);color:var(--red);border:1px solid rgba(224,80,80,.25)}.bdanger:hover{background:rgba(224,80,80,.22)}
+.bghost{background:var(--bg3);color:var(--text2);border:1px solid var(--border)}.bghost:hover{color:var(--text);border-color:var(--border2)}
+.bgreen{background:var(--green);color:#000}.bgreen:hover{opacity:.9}
+.bsm{padding:4px 8px;font-size:11px}
+.bfull{width:100%}
+.btn:disabled{opacity:.35;cursor:not-allowed;pointer-events:none}
+
+/* RECORDINGS LIST */
+.sblist-header{padding:8px 14px 5px;border-bottom:none;flex-shrink:0}
+.sblist{overflow-y:auto}
+.ritem{display:flex;align-items:center;gap:7px;padding:7px 12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s;position:relative}
+.ritem:hover{background:var(--bg3)}
+.ritem.active{background:var(--bg3);border-left:2px solid var(--accent);padding-left:10px}
+.rico{width:30px;height:30px;border-radius:var(--r);background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+.rico.live{background:rgba(224,80,80,.14);animation:blink 1.2s ease-in-out infinite}
+.rinfo{flex:1;min-width:0}
+.rname{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+.rmeta{font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:1px}
+.badge{display:inline-flex;padding:1px 5px;border-radius:3px;font-size:9px;font-family:var(--mono);font-weight:500;margin-top:2px}
+.badge.recording{background:rgba(224,80,80,.15);color:var(--red)}
+.badge.ready{background:var(--gdim);color:var(--green)}
+.badge.finalising{background:rgba(240,180,41,.15);color:var(--amber)}
+.ractions{display:flex;gap:3px;flex-shrink:0}
+.ibtn{width:24px;height:24px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--text2);cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center;transition:all .1s}
+.ibtn:hover{color:var(--text);border-color:var(--border2)}
+.ibtn.d:hover{color:var(--red);border-color:rgba(224,80,80,.4)}
+.ibtn.g:hover{color:var(--green);border-color:rgba(46,216,160,.4)}
+
+/* CLIPS LIST */
+.clitem{display:flex;align-items:center;gap:7px;padding:7px 12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s}
+.clitem:hover{background:var(--bg3)}
+.clitem.active{background:var(--adim);border-left:2px solid var(--accent);padding-left:10px}
+.clico{width:26px;height:26px;border-radius:var(--r);background:var(--adim);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--accent);flex-shrink:0}
+.clinfo{flex:1;min-width:0}
+.clname{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clmeta{font-size:10px;color:var(--text3);font-family:var(--mono)}
+.clactions{display:flex;gap:3px;flex-shrink:0}
+
+.empty{text-align:center;padding:24px 14px;color:var(--text3);font-size:12px}
+.eico{font-size:22px;margin-bottom:6px}
+
+/* EDITOR */
+.editor{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+.varea{flex:1;display:flex;align-items:center;justify-content:center;padding:14px;min-height:0;position:relative;background:#08090d}
+.vph{text-align:center;color:var(--text3)}
+.vph .vico{font-size:36px;margin-bottom:10px;opacity:.3}
+.vloading{text-align:center;color:var(--text2);font-family:var(--mono);font-size:12px}
+.spinner{display:inline-block;width:26px;height:26px;border:3px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:#000;outline:none}
+.livebadge{position:absolute;top:20px;left:20px;background:var(--red);color:#fff;font-family:var(--mono);font-size:10px;padding:3px 7px;border-radius:4px;display:none;align-items:center;gap:5px}
+.livebadge.show{display:flex}
+.livebadge::before{content:'';width:5px;height:5px;border-radius:50%;background:#fff;animation:blink 1s ease-in-out infinite}
+.tcov{position:absolute;top:20px;right:20px;background:rgba(0,0,0,.75);color:var(--green);font-family:var(--mono);font-size:12px;padding:4px 9px;border-radius:4px}
+
+/* TIMELINE */
+.tlarea{background:var(--bg2);border-top:1px solid var(--border);padding:12px 16px;flex-shrink:0}
+.tlhdr{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.tltitle{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text3)}
+.liind{display:none;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;color:var(--red)}
+.liind.show{display:flex}
+.liind::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--red);animation:blink 1s ease-in-out infinite}
+.zctrl{display:flex;align-items:center;gap:3px;margin-left:auto}
+.zbtn{width:22px;height:22px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text2);cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center}
+.zbtn:hover{color:var(--text);border-color:var(--border2)}
+.zval{font-family:var(--mono);font-size:10px;color:var(--text3);width:30px;text-align:center}
+.tcdis{font-family:var(--mono);font-size:12px;color:var(--text2);margin-left:6px}
+
+.tlscroll{overflow-x:auto;overflow-y:hidden;padding-bottom:2px;width:100%}
+.tlscroll::-webkit-scrollbar{height:4px}
+.tlscroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.tltrack{position:relative;height:56px;border-radius:var(--r);overflow:hidden;cursor:pointer;background:var(--bg3);border:1px solid var(--border);user-select:none;width:100%;min-width:100%}
+.tlbars{position:absolute;inset:0;display:flex;align-items:center;gap:1px;padding:4px 0;pointer-events:none}
+.tlbar{background:rgba(255,255,255,.08);border-radius:1px;flex-shrink:0}
+.liveprog{position:absolute;top:0;bottom:0;left:0;background:rgba(46,216,160,.05);pointer-events:none}
+.clipreg{position:absolute;top:0;bottom:0;background:rgba(232,80,10,.2);border-left:2px solid var(--accent);border-right:2px solid var(--accent);pointer-events:none;z-index:4}
+.ph{position:absolute;top:-4px;bottom:-4px;width:2px;background:#fff;pointer-events:none;z-index:6}
+.ph::before{content:'';position:absolute;top:0;left:-5px;border:5px solid transparent;border-top-color:#fff}
+.mkin,.mkout{position:absolute;top:0;bottom:0;width:2px;cursor:ew-resize;z-index:5}
+.mkin{background:var(--green)}
+.mkout{background:var(--accent)}
+.mkh{position:absolute;top:3px;width:14px;height:14px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;font-family:var(--mono)}
+.mkin .mkh{background:var(--green);color:#000;left:2px}
+.mkout .mkh{background:var(--accent);color:#fff;left:-16px}
+
+/* Saved clip overlays on timeline */
+.tl-clip{position:absolute;top:0;bottom:0;background:rgba(232,80,10,.18);border-left:1px solid rgba(232,80,10,.6);border-right:1px solid rgba(232,80,10,.6);pointer-events:all;cursor:pointer;overflow:hidden;z-index:3;transition:background .12s}
+.tl-clip:hover,.tl-clip.sel{background:rgba(232,80,10,.36);border-left:2px solid var(--accent);border-right:2px solid var(--accent)}
+.tl-clip-label{position:absolute;top:2px;left:3px;right:3px;font-size:9px;font-family:var(--mono);color:rgba(255,255,255,.9);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 3px rgba(0,0,0,.9);pointer-events:none}
+
+.tcruler{position:relative;height:12px;margin-top:3px}
+.tcmark{position:absolute;font-size:9px;font-family:var(--mono);color:var(--text3);transform:translateX(-50%)}
+
+.ctrls{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
+.transport{display:flex;gap:4px}
+.tbtn{width:30px;height:30px;border-radius:var(--r);background:var(--bg3);border:1px solid var(--border);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;transition:all .1s}
+.tbtn:hover{background:var(--bg4);color:var(--text)}
+.iobts{display:flex;gap:4px}
+.iobtn{display:inline-flex;align-items:center;gap:3px;padding:5px 7px;border-radius:var(--r);border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer;font-family:var(--mono);font-size:11px;transition:all .1s}
+.iobtn.in:hover{border-color:var(--green);color:var(--green)}
+.iobtn.out:hover{border-color:var(--accent);color:var(--accent)}
+.ptdis{font-family:var(--mono);font-size:11px;color:var(--text2)}
+.ptdis span{color:var(--text)}
+.exparea{margin-left:auto;display:flex;align-items:center;gap:6px}
+.cldur{font-family:var(--mono);font-size:11px;color:var(--text2)}
+.expbtn{background:var(--accent);color:#fff;padding:6px 14px;border-radius:var(--r);border:none;cursor:pointer;font-family:var(--sans);font-weight:700;font-size:13px;display:flex;align-items:center;gap:5px;transition:all .15s}
+.expbtn:hover{background:var(--accent2)}
+.expbtn:disabled{opacity:.35;cursor:not-allowed}
+
+/* PANELS */
+.panov{display:none;position:fixed;inset:0;background:rgba(8,9,13,.86);z-index:200;align-items:flex-start;justify-content:flex-end;padding-top:var(--hh)}
+.panov.show{display:flex}
+.pansheet{background:var(--bg2);border-left:1px solid var(--border2);width:410px;height:calc(100vh - var(--hh));overflow-y:auto;padding:20px}
+.pansheet h2{font-size:16px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.panclose{margin-left:auto;background:none;border:none;color:var(--text2);cursor:pointer;font-size:18px;padding:0 2px;line-height:1}
+
+.fg{display:flex;flex-direction:column;gap:4px;margin-bottom:11px}
+.fg label{font-size:10px;font-family:var(--mono);color:var(--text2);text-transform:uppercase;letter-spacing:.06em}
+.fg input,.fg select,.fg textarea{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:7px 10px;color:var(--text);font-family:var(--mono);font-size:12px;outline:none;width:100%;transition:border-color .15s}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--accent)}
+.fg select option{background:var(--bg3)}
+.fg textarea{resize:vertical;min-height:48px}
+.frow{display:flex;gap:7px}
+.frow .fg{flex:1}
+.fsec{margin:14px 0 8px;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);padding-bottom:5px}
+.fhint{font-size:10px;color:var(--text3);margin-top:-7px;margin-bottom:9px;font-family:var(--mono)}
+.litem{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
+.litem:last-child{border-bottom:none}
+.lifo{flex:1;overflow:hidden}
+.liname{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lisub{font-size:10px;color:var(--text2);font-family:var(--mono);margin-top:1px}
+.lacts{display:flex;gap:4px;flex-shrink:0}
+
+/* EXPORT OVERLAY */
+.expov{display:none;position:fixed;inset:0;background:rgba(8,9,13,.9);z-index:300;align-items:center;justify-content:center}
+.expov.show{display:flex}
+.excard{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);padding:26px;width:440px}
+.excard h3{font-size:15px;margin-bottom:14px}
+.ar-row{display:flex;gap:8px;margin-bottom:14px}
+.ar-btn{flex:1;padding:8px 6px;border-radius:var(--r);border:1px solid var(--border2);background:var(--bg4);color:var(--text2);cursor:pointer;font-family:var(--sans);font-size:12px;font-weight:600;text-align:center;transition:all .15s}
+.ar-btn:hover,.ar-btn.sel{background:var(--adim);border-color:var(--accent);color:var(--accent)}
+.ar-preview{width:100%;height:70px;background:var(--bg4);border-radius:var(--r);border:1px solid var(--border);margin-bottom:10px;position:relative;overflow:hidden;cursor:crosshair}
+.ar-prev-inner{position:absolute;background:rgba(232,80,10,.25);border:2px solid var(--accent)}
+.ar-hint{font-size:10px;color:var(--text3);font-family:var(--mono);margin-bottom:14px;text-align:center}
+.pbar{height:4px;background:var(--bg4);border-radius:4px;overflow:hidden;margin-bottom:8px}
+.pfill{height:100%;background:var(--accent);border-radius:4px;transition:width .3s}
+.ppct{font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:12px}
+.exacts{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+.dlbtn{background:var(--green);color:#000;padding:10px;border-radius:var(--r);border:none;cursor:pointer;font-family:var(--sans);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;gap:7px}
+.dlbtn:hover{opacity:.9}
+.extbtn{background:var(--bg4);color:var(--text2);border:1px solid var(--border);padding:7px;border-radius:var(--r);cursor:pointer;font-family:var(--sans);font-size:12px;display:flex;align-items:center;gap:6px;justify-content:center}
+.extbtn:hover{color:var(--text);border-color:var(--border2)}
+.closebtn{background:transparent;color:var(--text3);border:none;cursor:pointer;font-size:11px;margin-top:2px;width:100%;text-align:center}
+
+/* MODALS */
+.modalbg{display:none;position:fixed;inset:0;background:rgba(8,9,13,.82);z-index:250;align-items:center;justify-content:center}
+.modalbg.show{display:flex}
+.modal{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);padding:24px;width:380px}
+.modal h3{font-size:14px;font-weight:700;margin-bottom:14px}
+.modal-wide{width:460px}
+
+/* TOAST */
+.toast{position:fixed;bottom:18px;right:18px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:9px 13px;font-size:12px;max-width:280px;z-index:500;transform:translateY(12px);opacity:0;transition:all .25s;pointer-events:none}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.err{border-color:rgba(224,80,80,.4);color:var(--red)}
+.toast.ok{border-color:rgba(46,216,160,.3);color:var(--green)}
+
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginScreen">
+  <div class="lcard">
+    <div class="llogo">
+      <img src="https://www.yourside.nl/wp-content/uploads/2017/11/Yourside-logo-e1511282428901.png" alt="YourSide" onerror="this.style.display='none';document.getElementById('llfb').style.display='block'">
+      <div id="llfb" class="llogo-fb" style="display:none">YOURSIDE</div>
+    </div>
+    <div class="lsub">Capture Studio</div>
+    <div class="lver" id="lver">—</div>
+    <br>
+    <div class="lf"><label>Username</label><input id="lu" type="text" autocomplete="username"></div>
+    <div class="lf"><label>Password</label><input id="lp" type="password" autocomplete="current-password"></div>
+    <div class="lerr" id="lerr"></div>
+    <button class="lbtn" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <header class="hdr">
+    <div class="hlogo">
+      <img src="https://www.yourside.nl/wp-content/uploads/2017/11/Yourside-logo-e1511282428901.png" alt="YourSide" onerror="this.outerHTML='<span class=hlogo-fb>YOURSIDE</span>'">
+      <div class="hdiv"></div>
+      <span class="htitle">Capture Studio</span>
+      <span class="hver" id="hver"></span>
+    </div>
+    <div class="hsp"></div>
+    <div class="spill"><div class="sd" id="sd"></div><span id="sl">idle</span></div>
+    <button class="hbtn" id="btnProjects" onclick="togglePanel('projects')">📁 Projects</button>
+    <button class="hbtn" id="btnClips"    onclick="togglePanel('clips')">🎬 All Clips</button>
+    <button class="hbtn" id="btnUsers"    onclick="togglePanel('users')" style="display:none">👤 Users</button>
+    <button class="hbtn" id="btnSettings" onclick="togglePanel('settings')">⚙ Settings</button>
+    <div class="uchip"><div class="udot"></div><span id="ulab">—</span></div>
+    <button class="hbtn bsm" onclick="doLogout()">Sign out</button>
+  </header>
+
+  <div class="main">
+    <!-- SIDEBAR -->
+    <aside class="sb">
+      <!-- Project -->
+      <div class="sbs">
+        <div class="sbt"><span>Project</span></div>
+        <select class="psel" id="projSel" onchange="onProjChange()"><option value="">— Select a project —</option></select>
+        <div id="projCard" style="display:none">
+          <div class="proj-card">
+            <div class="proj-card-name" id="pcName">—</div>
+            <div class="proj-card-srt" id="pcSrt"></div>
+            <div class="proj-btn-row">
+              <button class="btn bprimary" id="recBtn" onclick="startRec()" style="flex:1">⏺ Start</button>
+              <button class="btn bdanger"  id="stopBtn" onclick="stopRec()" style="flex:1;display:none">⏹ Stop</button>
+              <button class="btn bghost bsm" onclick="editProject()">✏</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recordings -->
+      <div class="sblist-header">
+        <div class="sbt"><span>Recordings</span></div>
+      </div>
+      <div class="sblist" id="recList" style="flex:1;max-height:40%">
+        <div class="empty"><div class="eico">📼</div><p>No recordings yet</p></div>
+      </div>
+
+      <!-- Saved Clips -->
+      <div class="sblist-header" style="border-top:1px solid var(--border);margin-top:0">
+        <div class="sbt"><span>Saved Clips</span><button class="btn bghost bsm" onclick="togglePanel('clips')">All ›</button></div>
+      </div>
+      <div class="sblist" id="sbClipList" style="flex:1;max-height:40%">
+        <div class="empty"><div class="eico">✂️</div><p>No clips yet</p></div>
+      </div>
+    </aside>
+
+    <!-- EDITOR -->
+    <div class="editor">
+      <div class="varea">
+        <div class="vph" id="vph"><div class="vico">🎬</div><p>Select a project and start recording,<br>or select a recording to edit</p></div>
+        <div id="vloading" style="display:none;text-align:center;color:var(--text2);font-family:var(--mono);font-size:12px"><div class="spinner"></div><br>Connecting to stream…</div>
+        <video id="preview" style="display:none" preload="metadata"></video>
+        <div class="livebadge" id="livebadge">LIVE</div>
+        <div class="tcov" id="tcov" style="display:none">00:00:00:00</div>
+      </div>
+
+      <div class="tlarea" id="tlarea" style="display:none">
+        <div class="tlhdr">
+          <span class="tltitle">Timeline</span>
+          <div class="liind" id="liind">live</div>
+          <div class="zctrl">
+            <button class="zbtn" onclick="zOut()">−</button>
+            <span class="zval" id="zval">1×</span>
+            <button class="zbtn" onclick="zIn()">+</button>
+          </div>
+          <span class="tcdis" id="tcdis">00:00:00</span>
+        </div>
+        <div class="tlscroll" id="tlscroll">
+          <div class="tltrack" id="tltrack">
+            <div class="tlbars" id="tlbars"></div>
+            <div class="liveprog" id="liveprog"></div>
+            <!-- Clip overlays injected here by JS -->
+            <div class="clipreg" id="clipreg"></div>
+            <div class="mkin"  id="mkin"  style="left:0%"><div class="mkh">I</div></div>
+            <div class="mkout" id="mkout" style="left:100%"><div class="mkh">O</div></div>
+            <div class="ph" id="phEl" style="left:0%"></div>
+          </div>
+        </div>
+        <div class="tcruler" id="tcruler"></div>
+        <div class="ctrls">
+          <div class="transport">
+            <button class="tbtn" onclick="gStart()">⏮</button>
+            <button class="tbtn" onclick="fBack()">◀</button>
+            <button class="tbtn" id="pbtn" onclick="togglePlay()">▶</button>
+            <button class="tbtn" onclick="fFwd()">▶</button>
+            <button class="tbtn" onclick="gEnd()">⏭</button>
+          </div>
+          <div class="iobts">
+            <button class="iobtn in"  onclick="setIn()">[ In</button>
+            <button class="iobtn out" onclick="setOut()">Out ]</button>
+          </div>
+          <div class="ptdis"><span id="inD">00:00:00</span> — <span id="outD">--:--:--</span></div>
+          <div class="exparea">
+            <span class="cldur" id="cldur"></span>
+            <button class="btn bghost bsm" id="saveClipBtn" onclick="openSaveClip()" disabled>💾 Save</button>
+            <button class="expbtn" id="expBtn" onclick="openExport()" disabled>↓ Export</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PANELS -->
+<div class="panov" id="pan-projects">
+  <div class="pansheet">
+    <h2>📁 Projects <button class="panclose" onclick="closePanel('projects')">×</button></h2>
+    <div class="fsec">Create New Project</div>
+    <div class="fg"><label>Name</label><input id="pn" placeholder="e.g. World Cup 2025"></div>
+    <div class="fg"><label>Description</label><textarea id="pd"></textarea></div>
+    <div class="fsec">SRT Settings</div>
+    <div class="fg"><label>SRT URL</label><input id="p_url" placeholder="srt://host:port"></div>
+    <div class="frow">
+      <div class="fg"><label>Mode</label><select id="p_mode"><option value="caller">Caller</option><option value="listener">Listener</option><option value="rendezvous">Rendezvous</option></select></div>
+      <div class="fg"><label>Latency ms</label><input id="p_latency" type="number" value="200"></div>
+    </div>
+    <div class="fg"><label>Passphrase</label><input id="p_passphrase" type="password"></div>
+    <div class="fg"><label>Stream ID</label><input id="p_streamid"></div>
+    <div class="frow">
+      <div class="fg"><label>Video kbps</label><input id="p_vbr" type="number" value="4000"></div>
+      <div class="fg"><label>Audio kbps</label><input id="p_abr" type="number" value="128"></div>
+    </div>
+    <button class="btn bprimary bfull" style="margin-bottom:18px" onclick="createProj()">+ Create Project</button>
+    <div class="fsec">All Projects</div>
+    <div id="projList"></div>
+  </div>
+</div>
+
+<div class="panov" id="pan-clips">
+  <div class="pansheet">
+    <h2>🎬 All Saved Clips <button class="panclose" onclick="closePanel('clips')">×</button></h2>
+    <div class="fg"><label>Filter by project</label>
+      <select id="clipProjFilter" onchange="loadAllClips()"><option value="">All projects</option></select>
+    </div>
+    <div id="allClipsList"></div>
+  </div>
+</div>
+
+<div class="panov" id="pan-users">
+  <div class="pansheet">
+    <h2>👤 Users <button class="panclose" onclick="closePanel('users')">×</button></h2>
+    <div class="fsec" id="cuSection">Create New User</div>
+    <div id="cuForm">
+      <div class="fg"><label>Username</label><input id="un"></div>
+      <div class="fg"><label>Password</label><input id="up" type="password"></div>
+      <div class="fg"><label>Role</label><select id="ur"><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
+      <button class="btn bprimary bfull" style="margin-bottom:18px" onclick="createUser()">+ Create User</button>
+    </div>
+    <div class="fsec">Change My Password</div>
+    <div class="fg"><label>Current Password</label><input id="pwCur" type="password"></div>
+    <div class="fg"><label>New Password</label><input id="pwNew" type="password"></div>
+    <div class="fg"><label>Confirm New</label><input id="pwCon" type="password"></div>
+    <button class="btn bghost bfull" style="margin-bottom:18px" onclick="changeMyPw()">Update My Password</button>
+    <div class="fsec">All Users</div>
+    <div id="usersList"></div>
+  </div>
+</div>
+
+<div class="panov" id="pan-settings">
+  <div class="pansheet">
+    <h2>⚙ Settings <button class="panclose" onclick="closePanel('settings')">×</button></h2>
+
+    <div class="fsec">Storage</div>
+    <div class="fg"><label>Max hours to keep (0.5–8)</label><input id="cs_hours" type="number" min="0.5" max="8" step="0.5">
+      <div class="fhint">Clips protect ±5 min of source material from auto-deletion.</div></div>
+
+    <div class="fsec">External Export</div>
+    <div class="fg"><label>Dropbox Token</label><input id="cs_dbox" type="password"></div>
+    <div class="fg"><label>Facebook Page Token</label><input id="cs_fb" type="password"></div>
+    <div class="fg"><label>Facebook Page ID</label><input id="cs_fbid"></div>
+    <button class="btn bprimary bfull" style="margin-top:8px;margin-bottom:6px" onclick="saveSettings()">Save Settings</button>
+
+    <div class="fsec">Storage Manager</div>
+    <!-- Storage summary -->
+    <div id="storageSummary" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;margin-bottom:10px;font-family:var(--mono);font-size:11px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="color:var(--text2)">Recordings</span><span id="stRecSize" style="color:var(--text)">—</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="color:var(--text2)">Exported clips</span><span id="stExpSize" style="color:var(--text)">—</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:6px;margin-top:4px">
+        <span style="color:var(--text2)">Total</span><span id="stTotalSize" style="color:var(--accent);font-weight:700">—</span>
+      </div>
+    </div>
+    <button class="btn bghost bfull bsm" onclick="loadStorageView()" style="margin-bottom:8px">🔄 Refresh storage view</button>
+    <!-- Recordings list in storage view -->
+    <div id="storageRecList"></div>
+
+    <div class="fsec" style="margin-top:14px;color:var(--red)">Danger Zone</div>
+    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:10px">These actions cannot be undone.</div>
+    <div style="display:flex;flex-direction:column;gap:7px">
+      <button class="btn bdanger bfull" onclick="purgeRecordings(false)">🗑 Delete all recordings (keep exports)</button>
+      <button class="btn bdanger bfull" onclick="purgeRecordings(true)">🗑 Delete ALL recordings + exported clips</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT PROJECT MODAL -->
+<div class="modalbg" id="editProjModal">
+  <div class="modal modal-wide">
+    <h3>✏ Edit Project</h3>
+    <input type="hidden" id="ep_id">
+    <div class="fg"><label>Name</label><input id="ep_name"></div>
+    <div class="fg"><label>Description</label><textarea id="ep_desc"></textarea></div>
+    <div class="fsec">SRT Settings</div>
+    <div class="fg"><label>SRT URL</label><input id="ep_url"></div>
+    <div class="frow">
+      <div class="fg"><label>Mode</label><select id="ep_mode"><option value="caller">Caller</option><option value="listener">Listener</option><option value="rendezvous">Rendezvous</option></select></div>
+      <div class="fg"><label>Latency ms</label><input id="ep_latency" type="number"></div>
+    </div>
+    <div class="fg"><label>Passphrase</label><input id="ep_passphrase" type="password"></div>
+    <div class="fg"><label>Stream ID</label><input id="ep_streamid"></div>
+    <div class="frow">
+      <div class="fg"><label>Video kbps</label><input id="ep_vbr" type="number"></div>
+      <div class="fg"><label>Audio kbps</label><input id="ep_abr" type="number"></div>
+    </div>
+    <div class="frow" style="margin-top:12px">
+      <button class="btn bghost bfull" onclick="closeModal('editProjModal')">Cancel</button>
+      <button class="btn bprimary bfull" onclick="saveEditProject()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- RENAME RECORDING MODAL -->
+<div class="modalbg" id="renameRecModal">
+  <div class="modal">
+    <h3>✏ Name this Recording</h3>
+    <input type="hidden" id="rrId">
+    <div class="fg"><label>Name</label><input id="rrName" placeholder="e.g. Match Day 1 - First Half"></div>
+    <div class="frow" style="margin-top:12px">
+      <button class="btn bghost bfull" onclick="closeModal('renameRecModal')">Cancel</button>
+      <button class="btn bprimary bfull" onclick="doRenameRec()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- SAVE CLIP MODAL -->
+<div class="modalbg" id="saveModal">
+  <div class="modal">
+    <h3>💾 Save Clip</h3>
+    <div class="fg"><label>Clip name</label><input id="clipName" placeholder="e.g. Goal - 32nd minute"></div>
+    <div class="fg"><label>Project</label><select id="clipProjSel"><option value="">— No project —</option></select></div>
+    <div class="fg"><label>Notes</label><textarea id="clipNotes" style="min-height:44px"></textarea></div>
+    <div class="frow" style="margin-top:12px">
+      <button class="btn bghost bfull" onclick="closeModal('saveModal')">Cancel</button>
+      <button class="btn bprimary bfull" onclick="doSaveClip()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- EXPORT OVERLAY -->
+<div class="expov" id="expov">
+  <div class="excard">
+    <h3 id="exTitle">Export Clip</h3>
+
+    <!-- Aspect ratio selector -->
+    <div id="exSetup">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:10px;font-family:var(--mono)" id="exRange"></div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:8px">Output format:</div>
+      <div class="ar-row">
+        <div class="ar-btn sel" onclick="selAR('16:9',this)">
+          <div style="font-size:13px;font-weight:700">16:9</div>
+          <div style="font-size:9px;color:var(--text3)">Landscape<br>1920×1080</div>
+        </div>
+        <div class="ar-btn" onclick="selAR('9:16',this)">
+          <div style="font-size:13px;font-weight:700">9:16</div>
+          <div style="font-size:9px;color:var(--text3)">Portrait<br>1080×1920</div>
+        </div>
+        <div class="ar-btn" onclick="selAR('1:1',this)">
+          <div style="font-size:13px;font-weight:700">1:1</div>
+          <div style="font-size:9px;color:var(--text3)">Square<br>1080×1080</div>
+        </div>
+        <div class="ar-btn" onclick="selAR('original',this)">
+          <div style="font-size:13px;font-weight:700">Original</div>
+          <div style="font-size:9px;color:var(--text3)">No crop<br>keep source</div>
+        </div>
+      </div>
+      <div class="ar-hint" id="arHint" style="margin-bottom:14px;margin-top:4px">16:9 — scales to 1920×1080, letterboxed if needed</div>
+      <button class="btn bprimary bfull" onclick="startExport()">↓ Export MP4</button>
+    </div>
+
+    <!-- Progress -->
+    <div id="exProgress" style="display:none">
+      <div style="font-size:11px;color:var(--text2);font-family:var(--mono);margin-bottom:12px" id="exDesc"></div>
+      <div class="pbar"><div class="pfill" id="pfill" style="width:0%"></div></div>
+      <div class="ppct" id="ppct">0%</div>
+      <div class="exacts" id="exacts" style="display:none">
+        <a id="dllink"><button class="dlbtn">↓ Download MP4</button></a>
+        <button class="extbtn" onclick="toDropbox()">📦 Save to Dropbox</button>
+        <button class="extbtn" onclick="toFacebook()">📘 Share to Facebook</button>
+        <button class="closebtn" onclick="closeExp()">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────────────────────
+let token=null, me=null, cfg={}, projects=[];
+let activeRecId=null, activeSessId=null, activeProject=null;
+let isLive=false, dur=0, inPt=0, outPt=0;
+let zoom=1, pan=0, drag=null, hls=null;
+let expPoll=null, refreshInt=null, liveInt=null;
+let lastExpUrl=null, editClipId=null, selectedClipId=null;
+let sidebarClips=[];
+let exportAR='16:9';
+const FPS=25;
+
+const vid   = document.getElementById('preview');
+const track = document.getElementById('tltrack');
+const mkIn  = document.getElementById('mkin');
+const mkOut = document.getElementById('mkout');
+const phEl  = document.getElementById('phEl');
+const creg  = document.getElementById('clipreg');
+
+// ── UTILS ──────────────────────────────────────────────────────────────────
+const pad  = n=>String(n).padStart(2,'0');
+const hms  = s=>{ if(!isFinite(s)||s<0)return'00:00:00'; return`${pad(Math.floor(s/3600))}:${pad(Math.floor((s%3600)/60))}:${pad(Math.floor(s%60))}`; };
+const smtc = s=>{ if(!isFinite(s)||s<0)return'00:00:00:00'; return`${hms(s)}:${pad(Math.floor((s%1)*FPS))}`; };
+const fsz  = b=>b<1e6?(b/1024).toFixed(1)+' KB':b<1e9?(b/1e6).toFixed(1)+' MB':(b/1e9).toFixed(2)+' GB';
+
+function toast(msg,type=''){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.className='toast show '+type;
+  clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),3500);
+}
+
+async function api(method,url,body){
+  const o={method,headers:{'Content-Type':'application/json'}};
+  if(token)o.headers['Authorization']='Bearer '+token;
+  if(body)o.body=JSON.stringify(body);
+  try{ return await(await fetch(url,o)).json(); }
+  catch(e){ return{error:e.message}; }
+}
+
+// ── SESSION ────────────────────────────────────────────────────────────────
+function saveSession(t){ localStorage.setItem('ys_token',t); }
+function loadSession(){ return localStorage.getItem('ys_token'); }
+function clearSession(){ localStorage.removeItem('ys_token'); }
+
+// ── AUTH ───────────────────────────────────────────────────────────────────
+async function doLogin(){
+  const u=document.getElementById('lu').value.trim();
+  const p=document.getElementById('lp').value;
+  document.getElementById('lerr').textContent='';
+  const d=await api('POST','/api/auth/login',{username:u,password:p});
+  if(d.error){document.getElementById('lerr').textContent=d.error;return}
+  token=d.token; me=d; saveSession(token); showApp();
+}
+document.addEventListener('keydown',e=>{
+  if(e.code==='Enter'&&document.getElementById('loginScreen').style.display!=='none') doLogin();
+});
+async function doLogout(){
+  await api('POST','/api/auth/logout'); token=null; me=null; clearSession();
+  clearInterval(refreshInt); clearInterval(liveInt);
+  document.getElementById('app').classList.remove('show');
+  document.getElementById('loginScreen').style.display='flex';
+}
+function showApp(){
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('app').classList.add('show');
+  document.getElementById('ulab').textContent=me.username;
+  if(me.role==='admin') document.getElementById('btnUsers').style.display='';
+  initApp();
+}
+async function tryAutoLogin(){
+  const saved=loadSession(); if(!saved)return false;
+  token=saved;
+  const d=await api('GET','/api/auth/me');
+  if(d.error||!d.username){ clearSession(); token=null; return false; }
+  me=d; showApp(); return true;
+}
+async function initApp(){
+  const v=await api('GET','/api/version');
+  const ver='v'+(v.version||'?');
+  document.getElementById('hver').textContent=ver;
+  document.getElementById('lver').textContent=ver;
+  loadRecs(); loadProjects(); loadSettingsCfg(); loadSidebarClips();
+  refreshInt=setInterval(loadRecs,4000);
+}
+
+// ── STATUS ─────────────────────────────────────────────────────────────────
+function setStatus(s){ document.getElementById('sd').className='sd '+s; document.getElementById('sl').textContent=s; }
+
+// ── PANELS ─────────────────────────────────────────────────────────────────
+function togglePanel(id){
+  const el=document.getElementById('pan-'+id);
+  const was=el.classList.contains('show');
+  document.querySelectorAll('.panov').forEach(p=>p.classList.remove('show'));
+  document.querySelectorAll('.hbtn').forEach(b=>b.classList.remove('on'));
+  if(!was){
+    el.classList.add('show');
+    document.getElementById('btn'+id[0].toUpperCase()+id.slice(1))?.classList.add('on');
+    if(id==='projects') renderProjList();
+    if(id==='clips'){ loadAllClips(); fillClipFilter(); }
+    if(id==='users') loadUsers();
+    if(id==='settings'){ fillSettingsForm(); loadStorageView(); }
+  }
+}
+function closePanel(id){ document.getElementById('pan-'+id).classList.remove('show'); document.querySelectorAll('.hbtn').forEach(b=>b.classList.remove('on')); }
+function closeModal(id){ document.getElementById(id).classList.remove('show'); }
+
+// ── SETTINGS ───────────────────────────────────────────────────────────────
+async function loadSettingsCfg(){ cfg=await api('GET','/api/settings'); }
+function fillSettingsForm(){
+  document.getElementById('cs_hours').value=cfg.storage_hours||'4';
+  document.getElementById('cs_dbox').value=cfg.dropbox_token||'';
+  document.getElementById('cs_fb').value=cfg.fb_token||'';
+  document.getElementById('cs_fbid').value=cfg.fb_page_id||'';
+}
+async function saveSettings(){
+  const b={storage_hours:document.getElementById('cs_hours').value,dropbox_token:document.getElementById('cs_dbox').value,fb_token:document.getElementById('cs_fb').value,fb_page_id:document.getElementById('cs_fbid').value};
+  await api('POST','/api/settings',b); cfg={...cfg,...b}; toast('Settings saved','ok');
+}
+
+async function loadStorageView(){
+  const el=document.getElementById('storageRecList');
+  el.innerHTML='<div class="empty" style="padding:12px 0">Loading…</div>';
+  const d=await api('GET','/api/recordings/storage');
+  if(d.error){el.innerHTML=`<div class="empty" style="padding:12px;color:var(--red)">${d.error}</div>`;return;}
+
+  // Update summary
+  document.getElementById('stRecSize').textContent=fsz(d.totalBytes||0);
+  document.getElementById('stExpSize').textContent=fsz(d.exportBytes||0);
+  document.getElementById('stTotalSize').textContent=fsz((d.totalBytes||0)+(d.exportBytes||0));
+
+  const recs=d.recordings||[];
+  if(!recs.length){el.innerHTML='<div class="empty" style="padding:12px 0;font-size:11px">No recordings on disk</div>';return;}
+
+  el.innerHTML=recs.map(r=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name||r.id.slice(0,12)+'…'}</div>
+        <div style="font-size:10px;color:var(--text3);font-family:var(--mono)">${fsz(r.size)} · ${new Date(r.created).toLocaleDateString()} · ${r.clipCount} clip${r.clipCount!==1?'s':''}</div>
+        ${r.clipCount>0?`<div style="font-size:9px;color:var(--amber);font-family:var(--mono);margin-top:2px">⚠ has saved clips</div>`:''}
+      </div>
+      <div style="display:flex;gap:4px;flex-shrink:0">
+        <span class="badge ${r.status}">${r.status}</span>
+        <button class="ibtn d" title="Force delete${r.clipCount>0?' (will orphan clips)':''}"
+          onclick="forceDeleteRec('${r.id}','${(r.name||r.id.slice(0,8)).replace(/'/g,"\'")}',${r.clipCount})">🗑</button>
+      </div>
+    </div>`).join('');
+}
+
+async function forceDeleteRec(id,name,clipCount){
+  let msg=`Force delete recording "${name}"?`;
+  if(clipCount>0) msg+=`
+
+⚠ This recording has ${clipCount} saved clip${clipCount!==1?'s':''}. The clips will remain in the database but their source material will be gone.`;
+  if(!confirm(msg))return;
+  const r=await api('DELETE','/api/recordings/force/'+id);
+  if(r.error){toast(r.error,'err');return;}
+  toast('Recording deleted','ok');
+  loadStorageView(); loadRecs(); loadSidebarClips();
+}
+
+async function purgeRecordings(includeExports){
+  const what=includeExports?'ALL recordings AND all exported clip files':'all recordings (exported clip files will be kept)';
+  if(!confirm(`⚠ PERMANENTLY DELETE ${what.toUpperCase()}?
+
+This cannot be undone. Saved clip metadata in the database will be kept but source files will be gone.`))return;
+  if(!confirm('Are you absolutely sure? This will delete everything.'))return;
+  const r=await api('POST','/api/recordings/purge-all',{includeExports});
+  if(r.error){toast(r.error,'err');return;}
+  toast(`Deleted ${r.deletedRecs} recording(s)${includeExports?' and '+r.deletedExports+' export(s)':''}`,'ok');
+  loadStorageView(); loadRecs(); loadSidebarClips();
+  // Reset editor if active
+  activeRecId=null; isLive=false; dur=0;
+  vid.style.display='none';
+  document.getElementById('vph').style.display='';
+  document.getElementById('tlarea').style.display='none';
+}
+
+// ── PROJECTS ───────────────────────────────────────────────────────────────
+async function loadProjects(){
+  const d=await api('GET','/api/projects'); projects=d.projects||[];
+  const sel=document.getElementById('projSel'); const cur=sel.value;
+  sel.innerHTML='<option value="">— Select a project —</option>';
+  projects.forEach(p=>sel.innerHTML+=`<option value="${p.id}">${p.name}</option>`);
+  if(cur) sel.value=cur;
+  updateProjCard();
+  fillClipFilter();
+  const cs=document.getElementById('clipProjSel');
+  if(cs){ cs.innerHTML='<option value="">— No project —</option>'; projects.forEach(p=>cs.innerHTML+=`<option value="${p.id}">${p.name}</option>`); }
+}
+function renderProjList(){
+  const el=document.getElementById('projList'); if(!el)return;
+  el.innerHTML=projects.length?projects.map(p=>`
+    <div class="litem">
+      <div class="lifo"><div class="liname">${p.name}</div><div class="lisub">${p.srt_url||'No SRT URL'}</div></div>
+      <div class="lacts"><button class="ibtn" onclick="editProjectById('${p.id}')">✏</button><button class="ibtn d" onclick="delProj('${p.id}')">🗑</button></div>
+    </div>`).join(''):'<div class="empty" style="padding:16px 0">No projects</div>';
+}
+function updateProjCard(){
+  const id=document.getElementById('projSel').value;
+  const card=document.getElementById('projCard');
+  if(!id){ card.style.display='none'; activeProject=null; return; }
+  const p=projects.find(x=>x.id===id); if(!p){ card.style.display='none'; activeProject=null; return; }
+  activeProject=p; card.style.display='block';
+  document.getElementById('pcName').textContent=p.name;
+  document.getElementById('pcSrt').textContent=p.srt_url?`${p.srt_url} · ${p.srt_mode} · ${p.srt_latency}ms`:'⚠ No SRT URL — click ✏ to configure';
+}
+function onProjChange(){ updateProjCard(); }
+async function createProj(){
+  const name=document.getElementById('pn').value.trim(); if(!name){toast('Enter a name','err');return}
+  const b={name,description:document.getElementById('pd').value,srt_url:document.getElementById('p_url').value,srt_mode:document.getElementById('p_mode').value,srt_latency:document.getElementById('p_latency').value,srt_passphrase:document.getElementById('p_passphrase').value,srt_streamid:document.getElementById('p_streamid').value,video_bitrate:document.getElementById('p_vbr').value||'4000',audio_bitrate:document.getElementById('p_abr').value||'128'};
+  const r=await api('POST','/api/projects',b); if(r.error){toast(r.error,'err');return}
+  document.getElementById('pn').value=''; document.getElementById('pd').value='';
+  toast('Project created','ok'); await loadProjects();
+  document.getElementById('projSel').value=r.id; onProjChange();
+}
+async function delProj(id){ if(!confirm('Delete project?'))return; await api('DELETE','/api/projects/'+id); loadProjects(); }
+function editProject(){ if(activeProject) editProjectById(activeProject.id); }
+function editProjectById(id){
+  const p=projects.find(x=>x.id===id); if(!p)return;
+  document.getElementById('ep_id').value=p.id;
+  document.getElementById('ep_name').value=p.name;
+  document.getElementById('ep_desc').value=p.description||'';
+  document.getElementById('ep_url').value=p.srt_url||'';
+  document.getElementById('ep_mode').value=p.srt_mode||'caller';
+  document.getElementById('ep_latency').value=p.srt_latency||'200';
+  document.getElementById('ep_passphrase').value=p.srt_passphrase||'';
+  document.getElementById('ep_streamid').value=p.srt_streamid||'';
+  document.getElementById('ep_vbr').value=p.video_bitrate||'4000';
+  document.getElementById('ep_abr').value=p.audio_bitrate||'128';
+  document.getElementById('editProjModal').classList.add('show');
+  closePanel('projects');
+}
+async function saveEditProject(){
+  const id=document.getElementById('ep_id').value;
+  const b={name:document.getElementById('ep_name').value,description:document.getElementById('ep_desc').value,srt_url:document.getElementById('ep_url').value,srt_mode:document.getElementById('ep_mode').value,srt_latency:document.getElementById('ep_latency').value,srt_passphrase:document.getElementById('ep_passphrase').value,srt_streamid:document.getElementById('ep_streamid').value,video_bitrate:document.getElementById('ep_vbr').value||'4000',audio_bitrate:document.getElementById('ep_abr').value||'128'};
+  await api('PUT','/api/projects/'+id,b); toast('Project updated','ok'); closeModal('editProjModal'); loadProjects();
+}
+function fillClipFilter(){
+  const sel=document.getElementById('clipProjFilter'); if(!sel)return;
+  const cur=sel.value; sel.innerHTML='<option value="">All projects</option>';
+  projects.forEach(p=>sel.innerHTML+=`<option value="${p.id}">${p.name}</option>`);
+  if(cur) sel.value=cur;
+}
+
+// ── USERS ──────────────────────────────────────────────────────────────────
+async function loadUsers(){
+  const d=await api('GET','/api/users'); const isAdmin=me&&me.role==='admin';
+  document.getElementById('cuForm').style.display=isAdmin?'':'none';
+  document.getElementById('cuSection').style.display=isAdmin?'':'none';
+  document.getElementById('usersList').innerHTML=(d.users||[]).map(u=>`
+    <div class="litem">
+      <div class="lifo"><div class="liname">${u.username}</div><div class="lisub">${u.role}</div></div>
+      <div class="lacts">
+        ${isAdmin?`<button class="ibtn" onclick="promptChangePw('${u.id}','${u.username}')">🔑</button>`:''}
+        ${isAdmin?`<button class="ibtn d" onclick="delUser('${u.id}','${u.username}')">🗑</button>`:''}
+      </div>
+    </div>`).join('');
+}
+async function createUser(){
+  const username=document.getElementById('un').value.trim(),password=document.getElementById('up').value,role=document.getElementById('ur').value;
+  if(!username||!password){toast('Fill in all fields','err');return}
+  const r=await api('POST','/api/users',{username,password,role}); if(r.error){toast(r.error,'err');return}
+  document.getElementById('un').value=''; document.getElementById('up').value=''; toast('User created','ok'); loadUsers();
+}
+async function delUser(id,name){ if(!confirm(`Delete "${name}"?`))return; await api('DELETE','/api/users/'+id); loadUsers(); }
+async function promptChangePw(id,name){
+  const pw=prompt(`New password for "${name}":`); if(!pw||pw.length<4){toast('Min 4 characters','err');return}
+  const r=await api('PUT','/api/users/'+id,{password:pw}); if(r.error){toast(r.error,'err');return}
+  toast(`Password updated for ${name}`,'ok');
+}
+async function changeMyPw(){
+  const cur=document.getElementById('pwCur').value,pw=document.getElementById('pwNew').value,con=document.getElementById('pwCon').value;
+  if(!cur||!pw||!con){toast('Fill in all fields','err');return}
+  if(pw!==con){toast('New passwords do not match','err');return}
+  const r=await api('POST','/api/auth/change-password',{currentPassword:cur,newPassword:pw});
+  if(r.error){toast(r.error,'err');return}
+  document.getElementById('pwCur').value=''; document.getElementById('pwNew').value=''; document.getElementById('pwCon').value='';
+  toast('Password changed','ok');
+}
+
+// ── RECORDINGS ─────────────────────────────────────────────────────────────
+async function loadRecs(){
+  const d=await api('GET','/api/recordings'); const recs=d.recordings||[];
+  const el=document.getElementById('recList');
+  if(!recs.length){ el.innerHTML='<div class="empty"><div class="eico">📼</div><p>No recordings yet</p></div>'; return; }
+  el.innerHTML=recs.map(r=>`
+    <div class="ritem ${r.id===activeRecId?'active':''}" onclick="selRec('${r.id}',${r.status==='recording'})">
+      <div class="rico ${r.status==='recording'?'live':''}">${r.status==='recording'?'🔴':'🎞'}</div>
+      <div class="rinfo">
+        <div class="rname">${r.name||r.id.slice(0,10)+'…'}</div>
+        <div class="rmeta">${r.size?fsz(r.size)+' · ':''}${new Date(r.created).toLocaleTimeString()}</div>
+        <span class="badge ${r.status}">${r.status}</span>
+      </div>
+      <div class="ractions">
+        <button class="ibtn" title="Rename" onclick="event.stopPropagation();openRenameRec('${r.id}','${(r.name||'').replace(/'/g,"\\'")}')">✏</button>
+        <button class="ibtn d" title="Delete" onclick="event.stopPropagation();delRec('${r.id}')">🗑</button>
+      </div>
+    </div>`).join('');
+}
+
+function openRenameRec(id,name){
+  document.getElementById('rrId').value=id;
+  document.getElementById('rrName').value=name;
+  document.getElementById('renameRecModal').classList.add('show');
+}
+async function doRenameRec(){
+  const id=document.getElementById('rrId').value;
+  const name=document.getElementById('rrName').value.trim();
+  await api('PUT','/api/recordings/'+id,{name});
+  toast('Recording renamed','ok'); closeModal('renameRecModal'); loadRecs();
+}
+
+async function startRec(){
+  if(!activeProject){toast('Select a project first','err');return}
+  if(!activeProject.srt_url){toast('Configure SRT URL first','err');editProject();return}
+  document.getElementById('recBtn').style.display='none';
+  document.getElementById('stopBtn').style.display='';
+  document.getElementById('vph').style.display='none';
+  document.getElementById('vloading').style.display='block';
+  vid.style.display='none';
+  document.getElementById('tlarea').style.display='none';
+  setStatus('recording'); toast('Connecting…');
+  const d=await api('POST','/api/record/start',{projectId:activeProject.id});
+  if(d.error){
+    toast(d.error,'err');
+    document.getElementById('recBtn').style.display='';
+    document.getElementById('stopBtn').style.display='none';
+    document.getElementById('vph').style.display='';
+    document.getElementById('vloading').style.display='none';
+    setStatus('idle'); return;
+  }
+  activeSessId=d.id; toast('Recording started','ok'); loadRecs(); selRec(d.id,true);
+}
+
+async function stopRec(){
+  if(!activeSessId)return;
+  const id=activeSessId; activeSessId=null;
+  await api('POST','/api/record/stop/'+id);
+  clearInterval(liveInt);
+  document.getElementById('recBtn').style.display='';
+  document.getElementById('stopBtn').style.display='none';
+  setStatus('finalising'); toast('Finalising…');
+  const poll=setInterval(async()=>{
+    const d=await api('GET','/api/recordings');
+    const r=(d.recordings||[]).find(r=>r.id===id);
+    if(r&&r.status==='ready'){ clearInterval(poll); setStatus('idle'); toast('Saved','ok'); loadRecs(); if(activeRecId===id) selRec(id,false); }
+  },1500);
+}
+
+async function delRec(id){
+  if(!confirm('Delete this recording?'))return;
+  const r=await api('DELETE','/api/recordings/'+id);
+  if(r.error){toast(r.error,'err');return}
+  if(activeRecId===id){ activeRecId=null; vid.style.display='none'; document.getElementById('vph').style.display=''; document.getElementById('tlarea').style.display='none'; }
+  loadRecs();
+}
+
+// ── SELECT RECORDING ────────────────────────────────────────────────────────
+async function selRec(id,live){
+  if(hls){hls.destroy();hls=null}
+  clearInterval(liveInt);
+  activeRecId=id; isLive=live;
+  loadRecs(); loadSidebarClips();
+  document.getElementById('vloading').style.display='none';
+  vid.style.display='block';
+  document.getElementById('vph').style.display='none';
+  document.getElementById('tlarea').style.display='block';
+  document.getElementById('livebadge').classList.toggle('show',live);
+  document.getElementById('liind').classList.toggle('show',live);
+  document.getElementById('tcov').style.display='block';
+  document.getElementById('saveClipBtn').disabled=false;
+  document.getElementById('expBtn').disabled=false;
+
+  if(live){
+    const hlsUrl=`/hls/${id}/stream.m3u8`;
+    if(Hls.isSupported()){
+      hls=new Hls({lowLatencyMode:false,liveSyncDurationCount:10,liveMaxLatencyDurationCount:15,maxBufferLength:60,backBufferLength:Infinity,startPosition:0});
+      hls.loadSource(hlsUrl); hls.attachMedia(vid);
+      hls.on(Hls.Events.MANIFEST_PARSED,()=>{ vid.currentTime=0; vid.play(); });
+      hls.on(Hls.Events.FRAG_LOADED,(e,data)=>{
+        const nd=data.frag.start+data.frag.duration;
+        if(nd>dur){ const prev=dur; dur=nd; if(outPt>=prev-3||outPt<1)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); document.getElementById('liveprog').style.width='100%'; renderClipOverlays(); }
+      });
+      hls.on(Hls.Events.LEVEL_UPDATED,(e,data)=>{ const nd=data.details?.totalduration||0; if(nd>dur){ const prev=dur; dur=nd; if(outPt>=prev-3||outPt<1)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); } });
+      hls.on(Hls.Events.ERROR,(e,data)=>{ if(data.fatal)console.warn('HLS',data.type,data.details); });
+    } else if(vid.canPlayType('application/vnd.apple.mpegurl')){
+      vid.src=hlsUrl; vid.currentTime=0; vid.play();
+    }
+    dur=0; inPt=0; outPt=0; zoom=1; pan=0;
+    requestAnimationFrame(()=>{ buildBars(); buildRuler(); updateMk(); updPt(); });
+    document.getElementById('liveprog').style.width='0%';
+    // Live timecode tick loop
+    (function tick(){ if(!isLive||activeRecId!==id)return; const t=vid.currentTime||0; document.getElementById('tcdis').textContent=hms(t); document.getElementById('tcov').textContent=smtc(t); requestAnimationFrame(tick); })();
+    // Fallback server poll for timecode + duration
+    liveInt=setInterval(async()=>{
+      const d=await api('GET','/api/probe/'+id);
+      if(d.duration&&d.duration>dur){ const prev=dur; dur=d.duration; if(outPt>=prev-3||outPt<1)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); }
+      if(d.timecode) document.getElementById('tcov').textContent=d.timecode;
+    },3000);
+  } else {
+    // Finished MP4 — serve via range-request stream
+    vid.src='/stream/'+id; vid.load();
+    const d=await api('GET','/api/probe/'+id);
+    dur=d.duration||0; inPt=0; outPt=dur; zoom=1; pan=0;
+    requestAnimationFrame(()=>{ buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); });
+    document.getElementById('liveprog').style.width='0%';
+  }
+
+}
+
+// ── TIMELINE ───────────────────────────────────────────────────────────────
+const vd  =()=>Math.max(0.01,dur/zoom);
+const t2p =t=>Math.max(0,Math.min(100,((t-pan)/vd())*100));
+const p2t =p=>pan+(p/100)*vd();
+const epct=e=>{ const r=track.getBoundingClientRect(); return Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)); };
+
+function buildBars(){
+  const sc=document.getElementById('tlscroll');
+  const baseW=sc.offsetWidth||sc.clientWidth||800;
+  const totalPx=Math.max(200,Math.round(baseW*zoom));
+  track.style.width=totalPx+'px'; track.style.minWidth='100%';
+  const cnt=Math.max(80,Math.round(totalPx/5));
+  document.getElementById('tlbars').innerHTML=Array.from({length:cnt},(_,i)=>{
+    const h=12+Math.abs(Math.sin(i*.38)*48+Math.sin(i*1.07)*16+(Math.random()*18-9));
+    return`<div class="tlbar" style="height:${Math.min(100,h)}%;width:${Math.max(2,Math.round(totalPx/cnt)-1)}px"></div>`;
+  }).join('');
+  requestAnimationFrame(renderClipOverlays);
+}
+
+function buildRuler(){
+  if(!dur)return;
+  const ruler=document.getElementById('tcruler'); ruler.innerHTML='';
+  const steps=Math.min(12,Math.max(4,Math.floor(vd()/30)));
+  for(let i=0;i<=steps;i++){
+    const t=pan+(i/steps)*vd();
+    const m=document.createElement('div');
+    m.className='tcmark'; m.style.left=(i/steps*100)+'%'; m.textContent=hms(t);
+    ruler.appendChild(m);
+  }
+}
+
+function zIn(){ if(dur&&zoom<16){zoom=Math.min(16,zoom*2);document.getElementById('zval').textContent=zoom+'×';buildBars();buildRuler();updateMk();} }
+function zOut(){ if(zoom>1){zoom=Math.max(1,zoom/2);pan=Math.max(0,Math.min(pan,Math.max(0,dur-vd())));document.getElementById('zval').textContent=zoom+'×';buildBars();buildRuler();updateMk();} }
+
+function updateMk(){
+  if(!dur)return;
+  mkIn.style.left=t2p(inPt)+'%'; mkOut.style.left=t2p(outPt)+'%';
+  creg.style.left=t2p(inPt)+'%'; creg.style.width=(t2p(outPt)-t2p(inPt))+'%';
+}
+function updPt(){
+  document.getElementById('inD').textContent=hms(inPt);
+  document.getElementById('outD').textContent=hms(outPt);
+  const l=outPt-inPt; document.getElementById('cldur').textContent=l>0?`Clip: ${hms(l)}`:'';
+}
+
+// Clip overlays on timeline
+function renderClipOverlays(){
+  document.querySelectorAll('.tl-clip').forEach(e=>e.remove());
+  if(!dur||!sidebarClips.length)return;
+  sidebarClips.forEach(c=>{
+    if(c.recording_id!==activeRecId)return;
+    const lp=t2p(c.in_point), wp=t2p(c.out_point)-lp;
+    if(wp<=0)return;
+    const el=document.createElement('div');
+    el.className='tl-clip'+(c.id===selectedClipId?' sel':'');
+    el.id='tlclip-'+c.id;
+    el.style.cssText=`left:${lp}%;width:${wp}%`;
+    el.innerHTML=`<div class="tl-clip-label">${c.name}</div>`;
+    el.addEventListener('click',evt=>{ evt.stopPropagation(); selectClip(c.id,c.recording_id,c.in_point,c.out_point); });
+    // Insert before the clipreg/markers
+    track.insertBefore(el,document.getElementById('clipreg'));
+  });
+}
+
+function selectClip(id,recId,ip,op){
+  selectedClipId=id; inPt=ip; outPt=op;
+  if(activeRecId===recId){ updateMk(); updPt(); if(!isLive) vid.currentTime=ip; }
+  else { selRec(recId,false); setTimeout(()=>{ inPt=ip; outPt=op; updateMk(); updPt(); vid.currentTime=ip; },800); }
+  renderClipOverlays(); renderSidebarClips();
+  const el=document.getElementById('sbclip-'+id);
+  if(el) el.scrollIntoView({block:'nearest',behavior:'smooth'});
+}
+
+// Timeline interaction
+track.addEventListener('click',e=>{ if(drag||!dur)return; const t=p2t(epct(e)*100); if(!isLive) vid.currentTime=t; phEl.style.left=t2p(t)+'%'; document.getElementById('tcdis').textContent=hms(t); });
+mkIn.addEventListener('mousedown', e=>{drag='in'; e.preventDefault(); e.stopPropagation();});
+mkOut.addEventListener('mousedown',e=>{drag='out';e.preventDefault(); e.stopPropagation();});
+document.addEventListener('mousemove',e=>{
+  if(!drag||!dur)return;
+  const t=p2t(epct(e)*100);
+  if(drag==='in'){inPt=Math.max(0,Math.min(t,outPt-.5));if(!isLive)vid.currentTime=inPt;}
+  else{outPt=Math.max(inPt+.5,Math.min(t,dur));if(!isLive)vid.currentTime=outPt;}
+  updateMk(); updPt();
+});
+document.addEventListener('mouseup',()=>drag=null);
+
+vid.addEventListener('timeupdate',()=>{
+  if(!dur)return; const t=vid.currentTime;
+  if(t<pan||t>pan+vd()){pan=Math.max(0,t-vd()*.1);buildRuler();updateMk();}
+  phEl.style.left=t2p(t)+'%';
+  document.getElementById('tcdis').textContent=hms(t);
+  document.getElementById('tcov').textContent=smtc(t);
+});
+vid.addEventListener('seeked',()=>{
+  if(!dur)return; const t=vid.currentTime;
+  phEl.style.left=t2p(t)+'%'; document.getElementById('tcdis').textContent=hms(t); document.getElementById('tcov').textContent=smtc(t);
+});
+vid.addEventListener('ended',()=>document.getElementById('pbtn').textContent='▶');
+
+function togglePlay(){const b=document.getElementById('pbtn');if(vid.paused){vid.play();b.textContent='⏸';}else{vid.pause();b.textContent='▶';}}
+function gStart(){vid.currentTime=0;}
+function gEnd(){if(dur)vid.currentTime=dur;}
+function fBack(){vid.currentTime=Math.max(0,vid.currentTime-1/FPS);}
+function fFwd(){vid.currentTime=Math.min(dur,vid.currentTime+1/FPS);}
+function setIn(){ inPt=vid.currentTime; if(inPt>=outPt)outPt=Math.min(dur,inPt+1); updateMk(); updPt(); phEl.style.left=t2p(inPt)+'%'; flashEl('mkin'); }
+function setOut(){ outPt=vid.currentTime; if(outPt<=inPt)inPt=Math.max(0,outPt-1); updateMk(); updPt(); phEl.style.left=t2p(outPt)+'%'; flashEl('mkout'); }
+function flashEl(id){ const el=document.getElementById(id); el.style.opacity='.2'; setTimeout(()=>el.style.opacity='.7',80); setTimeout(()=>el.style.opacity='1',200); }
+
+window.addEventListener('resize',()=>{ if(dur){buildBars();buildRuler();updateMk();} });
+
+// ── CLIPS ──────────────────────────────────────────────────────────────────
+async function loadSidebarClips(){
+  if(!activeRecId){ sidebarClips=[]; renderSidebarClips(); return; }
+  const d=await api('GET','/api/clips?recording_id='+activeRecId);
+  sidebarClips=d.clips||[];
+  renderSidebarClips(); renderClipOverlays();
+}
+
+function renderSidebarClips(){
+  const el=document.getElementById('sbClipList'); if(!el)return;
+  if(!sidebarClips.length){ el.innerHTML='<div class="empty"><div class="eico">✂️</div><p>No clips yet</p></div>'; return; }
+  el.innerHTML=sidebarClips.map(c=>`
+    <div class="clitem ${c.id===selectedClipId?'active':''}" id="sbclip-${c.id}"
+         onclick="selectClip('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">
+      <div class="clico">✂</div>
+      <div class="clinfo">
+        <div class="clname">${c.name}</div>
+        <div class="clmeta">${hms(c.in_point)} – ${hms(c.out_point)} · ${hms(c.out_point-c.in_point)}</div>
+      </div>
+      <div class="clactions">
+        <button class="ibtn g" title="Export" onclick="event.stopPropagation();exportClipDirect('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">↓</button>
+        <button class="ibtn d" title="Delete" onclick="event.stopPropagation();delClip('${c.id}')">🗑</button>
+      </div>
+    </div>`).join('');
+}
+
+async function loadAllClips(){
+  const pid=document.getElementById('clipProjFilter')?.value||'';
+  const d=await api('GET','/api/clips'+(pid?'?project_id='+pid:''));
+  const el=document.getElementById('allClipsList'); if(!el)return;
+  const clips=d.clips||[];
+  el.innerHTML=clips.length?clips.map(c=>`
+    <div class="litem">
+      <div class="lifo">
+        <div class="liname">${c.name}</div>
+        <div class="lisub">${hms(c.in_point)} → ${hms(c.out_point)} · ${hms(c.out_point-c.in_point)}${c.notes?' · '+c.notes:''}</div>
+      </div>
+      <div class="lacts">
+        <button class="ibtn g" title="Export" onclick="exportClipDirect('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">↓</button>
+        <button class="ibtn" title="Load in editor" onclick="loadClip('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">▶</button>
+        <button class="ibtn" title="Edit" onclick="editClip('${c.id}','${c.name}','${(c.notes||'').replace(/'/g,"\\'")}')">✏</button>
+        ${c.export_file?`<a href="${c.export_file}" download><button class="ibtn" title="Download">⬇</button></a>`:''}
+        <button class="ibtn d" title="Delete" onclick="delClip('${c.id}')">🗑</button>
+      </div>
+    </div>`).join(''):'<div class="empty" style="padding:20px 0">No saved clips</div>';
+}
+
+function exportClipDirect(clipId,recId,ip,op){
+  // Load clip into editor and open export
+  activeRecId=activeRecId||recId;
+  inPt=ip; outPt=op; editClipId=clipId;
+  if(activeRecId!==recId){
+    selRec(recId,false).then(()=>{ inPt=ip; outPt=op; updateMk(); updPt(); openExport(); });
+  } else {
+    updateMk(); updPt(); openExport();
+  }
+  closePanel('clips');
+}
+
+function openSaveClip(){
+  if(!activeRecId||outPt<=inPt){toast('Set valid in/out points first','err');return}
+  editClipId=null;
+  document.getElementById('clipName').value='';
+  document.getElementById('clipNotes').value='';
+  const cs=document.getElementById('clipProjSel');
+  cs.innerHTML='<option value="">— No project —</option>';
+  projects.forEach(p=>cs.innerHTML+=`<option value="${p.id}">${p.name}</option>`);
+  if(activeProject) cs.value=activeProject.id;
+  document.getElementById('saveModal').classList.add('show');
+}
+async function doSaveClip(){
+  const name=document.getElementById('clipName').value.trim(); if(!name){toast('Enter a clip name','err');return}
+  const body={name,project_id:document.getElementById('clipProjSel').value||null,recording_id:activeRecId,in_point:inPt,out_point:outPt,notes:document.getElementById('clipNotes').value.trim()};
+  if(editClipId){ await api('PUT','/api/clips/'+editClipId,body); toast('Clip updated','ok'); }
+  else{ await api('POST','/api/clips',body); toast('Clip saved','ok'); }
+  closeModal('saveModal'); editClipId=null; loadSidebarClips();
+}
+function editClip(id,name,notes){
+  editClipId=id; openSaveClip();
+  setTimeout(()=>{ document.getElementById('clipName').value=name; document.getElementById('clipNotes').value=notes; },0);
+}
+async function delClip(id){
+  if(!confirm('Delete this clip?'))return;
+  await api('DELETE','/api/clips/'+id);
+  if(selectedClipId===id) selectedClipId=null;
+  if(editClipId===id) editClipId=null;
+  toast('Clip deleted'); loadSidebarClips(); loadAllClips();
+}
+async function loadClip(clipId,recId,ip,op){
+  closePanel('clips');
+  if(activeRecId!==recId) await selRec(recId,false);
+  inPt=ip; outPt=op; editClipId=clipId; selectedClipId=clipId;
+  updateMk(); updPt(); renderClipOverlays(); renderSidebarClips();
+  if(!isLive) vid.currentTime=ip;
+  toast('Clip loaded');
+}
+
+// ── EXPORT ─────────────────────────────────────────────────────────────────
+function openExport(){
+  if(!activeRecId){toast('Select a recording','err');return}
+  if(outPt<=inPt){toast('Set valid in/out points','err');return}
+  exportAR='16:9';
+  document.getElementById('exTitle').textContent='Export Clip';
+  document.getElementById('exRange').textContent=`${hms(inPt)} → ${hms(outPt)}   duration: ${hms(outPt-inPt)}`;
+  document.getElementById('exSetup').style.display='block';
+  document.getElementById('exProgress').style.display='none';
+  document.getElementById('exacts').style.display='none';
+  document.getElementById('expov').classList.add('show');
+  // Reset AR buttons to default 16:9
+  document.querySelectorAll('.ar-btn').forEach(b=>b.classList.remove('sel'));
+  document.querySelector('.ar-btn').classList.add('sel');
+  document.getElementById('arHint').textContent='16:9 — scales to 1920×1080, letterboxed if needed';
+}
+
+function selAR(ar,btn){
+  exportAR=ar;
+  document.querySelectorAll('.ar-btn').forEach(b=>b.classList.remove('sel'));
+  btn.classList.add('sel');
+  const hints={
+    '16:9':'16:9 — scales to 1920×1080, letterboxed if needed',
+    '9:16':'9:16 — crops centre column and scales to 1080×1920',
+    '1:1':'1:1 — crops centre square and scales to 1080×1080',
+    'original':'Original — no crop, keeps source dimensions exactly',
+  };
+  document.getElementById('arHint').textContent=hints[ar]||'';
+}
+
+// Crop computed server-side from real source dimensions
+
+async function startExport(){
+  document.getElementById('exSetup').style.display='none';
+  document.getElementById('exProgress').style.display='block';
+  document.getElementById('exacts').style.display='none';
+  document.getElementById('pfill').style.width='0%';
+  document.getElementById('ppct').textContent='0%';
+  document.getElementById('exTitle').textContent='Exporting…';
+  document.getElementById('exDesc').textContent=`${hms(inPt)} → ${hms(outPt)} · ${exportAR}`;
+
+  const body={id:activeRecId,inPoint:inPt,outPoint:outPt,clipId:editClipId,aspectRatio:exportAR};
+
+  const d=await api('POST','/api/export',body);
+  if(d.error){toast(d.error,'err');closeExp();return}
+  clearInterval(expPoll);
+  expPoll=setInterval(async()=>{
+    const s=await api('GET','/api/export/status/'+d.exportId);
+    document.getElementById('pfill').style.width=s.progress+'%';
+    document.getElementById('ppct').textContent=s.progress+'%';
+    if(s.status==='done'){
+      clearInterval(expPoll); lastExpUrl=s.downloadUrl;
+      document.getElementById('exTitle').textContent='Export complete!';
+      const lnk=document.getElementById('dllink'); lnk.href=s.downloadUrl; lnk.download=s.downloadUrl.split('/').pop();
+      document.getElementById('exacts').style.display='flex';
+    } else if(s.status==='error'){
+      clearInterval(expPoll);
+      document.getElementById('exTitle').textContent='Export failed';
+      document.getElementById('exacts').style.display='flex';
+      toast('Export error','err');
+    }
+  },800);
+}
+
+function closeExp(){clearInterval(expPoll);document.getElementById('expov').classList.remove('show');}
+
+async function toDropbox(){
+  if(!cfg.dropbox_token){toast('Set Dropbox token in Settings','err');togglePanel('settings');return}
+  if(!lastExpUrl)return; toast('Uploading to Dropbox…');
+  try{ const blob=await(await fetch(lastExpUrl)).blob(); const fname=lastExpUrl.split('/').pop(); const r=await fetch('https://content.dropboxapi.com/2/files/upload',{method:'POST',headers:{'Authorization':'Bearer '+cfg.dropbox_token,'Dropbox-API-Arg':JSON.stringify({path:'/YourSide/'+fname,mode:'add',autorename:true}),'Content-Type':'application/octet-stream'},body:blob}); r.ok?toast('Uploaded to Dropbox!','ok'):toast('Dropbox error: '+(await r.text()),'err'); }catch(e){toast('Dropbox error: '+e.message,'err')}
+}
+async function toFacebook(){
+  if(!cfg.fb_token||!cfg.fb_page_id){toast('Set Facebook token + Page ID in Settings','err');togglePanel('settings');return}
+  if(!lastExpUrl)return; toast('Uploading to Facebook…');
+  try{ const blob=await(await fetch(lastExpUrl)).blob(); const form=new FormData(); form.append('source',blob,'clip.mp4'); form.append('title','YourSide Clip'); form.append('access_token',cfg.fb_token); const r=await fetch(`https://graph.facebook.com/v19.0/${cfg.fb_page_id}/videos`,{method:'POST',body:form}); const j=await r.json(); j.id?toast('Published to Facebook!','ok'):toast('Facebook: '+(j.error?.message||'error'),'err'); }catch(e){toast('Facebook error: '+e.message,'err')}
+}
+
+// ── KEYBOARD ───────────────────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+  if(!document.getElementById('app').classList.contains('show'))return;
+  if(e.code==='Space'){e.preventDefault();togglePlay();}
+  if(e.code==='KeyI')setIn();
+  if(e.code==='KeyO')setOut();
+  if(e.code==='Home')gStart();
+  if(e.code==='End')gEnd();
+  if(e.code==='Equal'||e.code==='NumpadAdd')zIn();
+  if(e.code==='Minus'||e.code==='NumpadSubtract')zOut();
+  if(e.code==='ArrowLeft'&&!e.shiftKey){e.preventDefault();fBack();}
+  if(e.code==='ArrowRight'&&!e.shiftKey){e.preventDefault();fFwd();}
+  if(e.code==='ArrowLeft'&&e.shiftKey){e.preventDefault();pan=Math.max(0,pan-vd()*.1);buildRuler();updateMk();}
+  if(e.code==='ArrowRight'&&e.shiftKey){e.preventDefault();pan=Math.min(Math.max(0,dur-vd()),pan+vd()*.1);buildRuler();updateMk();}
+});
+
+// ── BOOT ───────────────────────────────────────────────────────────────────
+(async()=>{
+  const v=await api('GET','/api/version');
+  document.getElementById('lver').textContent='v'+(v.version||'?');
+  const ok=await tryAutoLogin();
+  if(!ok) document.getElementById('loginScreen').style.display='flex';
+})();
+</script>
+</body>
+</html>
