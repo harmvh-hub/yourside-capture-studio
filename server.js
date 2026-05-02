@@ -12,7 +12,9 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION = '2.10';
+const VERSION_NUM = '2.10';
+const GODS = ['Zeus','Hera','Athena','Apollo','Artemis','Ares','Aphrodite','Hermes','Hephaestus','Poseidon','Demeter','Dionysus','Hades','Persephone','Hestia','Eos','Helios','Selene','Nike','Tyche','Nemesis','Iris','Eris','Morpheus','Hypnos','Eros','Pan','Proteus','Triton','Nyx'];
+const VERSION = `${VERSION_NUM} (${GODS[Math.floor(Math.random()*GODS.length)]})`;
 const PORT           = process.env.PORT           || 3000;
 const RECORDINGS_DIR = process.env.RECORDINGS_DIR || path.join(__dirname, 'recordings');
 const EXPORTS_DIR    = process.env.EXPORTS_DIR    || path.join(__dirname, 'exports');
