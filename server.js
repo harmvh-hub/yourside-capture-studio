@@ -85,7 +85,29 @@ function buildSrtUrl(p){ if(!p.srt_url)return''; const ps=[`mode=${p.srt_mode||'
 
 function probeDuration(fp){ return new Promise(ok=>{ execFile('ffprobe',['-v','quiet','-print_format','json','-show_format',fp],(err,out)=>{ if(err)return ok(null); try{ok(parseFloat(JSON.parse(out).format.duration)||null);}catch{ok(null);} }); }); }
 
-function probeVideo(fp){ return new Promise(ok=>{ execFile('ffprobe',['-v','quiet','-print_format','json','-show_streams','-select_streams','v:0',fp],(err,out)=>{ if(err)return ok(null); try{ const s=JSON.parse(out).streams[0]; ok({width:s.width,height:s.height,fps:eval(s.r_frame_rate)||25}); }catch{ok(null);} }); }); }
+function probeVideo(fp){ return new Promise(ok=>{ execFile('ffprobe',['-v','quiet','-print_format','json','-show_streams','-select_streams','v:0',fp],(err,out)=>{ if(err)return ok(null); try{ const s=JSON.parse(out).streams[0]; const[fn,fd]=(s.r_frame_rate||'25/1').split('/'); ok({width:s.width,height:s.height,fps:(fd?parseFloat(fn)/parseFloat(fd):parseFloat(fn))||25}); }catch{ok(null);} }); }); }
+
+function probeWaveform(fp,n=200){ return new Promise(ok=>{
+  execFile('ffprobe',['-v','quiet','-print_format','json','-show_format',fp],(err,out)=>{
+    let dur=60; try{dur=parseFloat(JSON.parse(out).format.duration)||60;}catch{}
+    const chunk=Math.max(800,Math.round(dur*8000/n));
+    const proc=spawn('ffmpeg',['-i',fp,'-vn','-af',
+      `aresample=8000,asetnsamples=n=${chunk}:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level`,
+      '-f','null','-']);
+    let buf='';
+    proc.stderr.on('data',d=>buf+=d.toString());
+    proc.on('close',()=>{
+      const vals=[];
+      for(const m of buf.matchAll(/lavfi\.astats\.Overall\.RMS_level=(-?[\d.]+|-inf)/g)){
+        const v=parseFloat(m[1]); vals.push(isFinite(v)?v:-80);
+      }
+      if(!vals.length)return ok(null);
+      const lo=Math.min(...vals),hi=Math.max(...vals),rng=hi-lo||1;
+      ok(vals.map(v=>Math.round(((v-lo)/rng)*1000)/1000));
+    });
+    proc.on('error',()=>ok(null));
+  });
+});}
 
 function finaliseMp4(hlsDir, mp4File){ return new Promise((ok,fail)=>{
   const m3u8=path.join(hlsDir,'stream.m3u8');
@@ -235,6 +257,14 @@ const server = http.createServer(async(req,res)=>{
     return jres(res,200,{duration:await probeDuration(fp),live:false,hlsReady:true,width:info?info.width:1920,height:info?info.height:1080});
   }
 
+  // Waveform
+  if(req.method==='GET'&&p.startsWith('/api/waveform/')){
+    const id=p.replace('/api/waveform/','');
+    const fp=path.join(RECORDINGS_DIR,`${id}.mp4`);
+    if(!fs.existsSync(fp))return jres(res,404,{error:'Not found'});
+    return jres(res,200,{waveform:(await probeWaveform(fp))||[]});
+  }
+
   // Start recording
   if(req.method==='POST'&&p==='/api/record/start'){
     const{projectId,name}=await parseBody(req); if(!projectId)return jres(res,400,{error:'projectId required'});
@@ -243,13 +273,13 @@ const server = http.createServer(async(req,res)=>{
     const id=uuid(); const hlsDir=path.join(RECORDINGS_DIR,id); fs.mkdirSync(hlsDir,{recursive:true});
     // Register recording with name
     db.prepare('INSERT INTO recordings (id,name,project_id) VALUES (?,?,?)').run(id,name||'',projectId);
-    const proc=spawn('ffmpeg',['-y','-i',srtUrl,'-c:v','libx264','-preset','ultrafast','-b:v',`${proj.video_bitrate||4000}k`,'-c:a','aac','-b:a',`${proj.audio_bitrate||128}k`,'-f','hls','-hls_time','2','-hls_list_size','0','-hls_flags','append_list','-hls_segment_filename',path.join(hlsDir,'seg%05d.ts'),path.join(hlsDir,'stream.m3u8')],{stdio:['ignore','pipe','pipe']});
+    const proc=spawn('ffmpeg',['-y','-fflags','+discardcorrupt+genpts','-analyzeduration','10000000','-probesize','10000000','-i',srtUrl,'-c:v','libx264','-preset','ultrafast','-b:v',`${proj.video_bitrate||4000}k`,'-c:a','aac','-b:a',`${proj.audio_bitrate||128}k`,'-f','hls','-hls_time','2','-hls_list_size','0','-hls_flags','append_list','-hls_segment_filename',path.join(hlsDir,'seg%05d.ts'),path.join(hlsDir,'stream.m3u8')],{stdio:['ignore','pipe','pipe']});
     const mp4File=path.join(RECORDINGS_DIR,`${id}.mp4`);
     sessions.set(id,{proc,hlsDir,mp4File,startTime:Date.now(),projectId,status:'recording',hlsReady:false,lastTimecode:null});
     proc.stderr.on('data',d=>{ const t=d.toString(),s=sessions.get(id); if(!s)return; s.lastLog=t.trim().split('\n').pop(); const tc=t.match(/timecode[=: ]+(\d{2}:\d{2}:\d{2}[;:]\d{2})/i); if(tc)s.lastTimecode=tc[1]; });
     proc.on('error',err=>{ const s=sessions.get(id); if(s){s.status='error';s.error=err.message;} });
     proc.on('close',async code=>{ const s=sessions.get(id); if(!s)return; if(s.status==='stopping'){s.status='finalising'; try{await finaliseMp4(hlsDir,mp4File);s.status='ready';}catch(e){s.status='error';s.error=e.message;} }else{s.status=code===0?'ready':'error';} s.proc=null; });
-    try{ await waitHls(hlsDir,15000); const s=sessions.get(id); if(s)s.hlsReady=true; return jres(res,200,{id,status:'recording',hlsUrl:`/hls/${id}/stream.m3u8`,hlsReady:true}); }
+    try{ await waitHls(hlsDir,30000); const s=sessions.get(id); if(s)s.hlsReady=true; return jres(res,200,{id,status:'recording',hlsUrl:`/hls/${id}/stream.m3u8`,hlsReady:true}); }
     catch(e){ const s=sessions.get(id); if(s){s.status='error';s.error='Stream did not start';} return jres(res,500,{error:'Stream did not start. Check SRT URL and source.'}); }
   }
 

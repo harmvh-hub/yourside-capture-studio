@@ -586,6 +586,7 @@ let zoom=1, pan=0, drag=null, hls=null;
 let expPoll=null, refreshInt=null, liveInt=null;
 let lastExpUrl=null, editClipId=null, selectedClipId=null;
 let sidebarClips=[];
+let waveformCache={};
 let exportAR='16:9';
 const FPS=25;
 
@@ -983,6 +984,7 @@ async function selRec(id,live){
     dur=d.duration||0; inPt=0; outPt=dur; zoom=1; pan=0;
     requestAnimationFrame(()=>{ buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); });
     document.getElementById('liveprog').style.width='0%';
+    fetchWaveform(id);
   }
 
 }
@@ -999,11 +1001,22 @@ function buildBars(){
   const totalPx=Math.max(200,Math.round(baseW*zoom));
   track.style.width=totalPx+'px'; track.style.minWidth='100%';
   const cnt=Math.max(80,Math.round(totalPx/5));
+  const wf=activeRecId&&Array.isArray(waveformCache[activeRecId])&&waveformCache[activeRecId];
   document.getElementById('tlbars').innerHTML=Array.from({length:cnt},(_,i)=>{
-    const h=12+Math.abs(Math.sin(i*.38)*48+Math.sin(i*1.07)*16+(Math.random()*18-9));
+    let h;
+    if(wf&&wf.length){ const idx=Math.floor((i/cnt)*wf.length); h=8+wf[idx]*80; }
+    else{ h=12+Math.abs(Math.sin(i*.38)*48+Math.sin(i*1.07)*16+(Math.random()*18-9)); }
     return`<div class="tlbar" style="height:${Math.min(100,h)}%;width:${Math.max(2,Math.round(totalPx/cnt)-1)}px"></div>`;
   }).join('');
   requestAnimationFrame(renderClipOverlays);
+}
+
+async function fetchWaveform(id){
+  if(id in waveformCache)return;
+  waveformCache[id]=null;
+  const d=await api('GET','/api/waveform/'+id);
+  waveformCache[id]=(d.waveform&&d.waveform.length)?d.waveform:null;
+  if(activeRecId===id)buildBars();
 }
 
 function buildRuler(){
@@ -1278,6 +1291,8 @@ document.addEventListener('keydown',e=>{
   if(e.code==='Space'){e.preventDefault();togglePlay();}
   if(e.code==='KeyI')setIn();
   if(e.code==='KeyO')setOut();
+  if(e.code==='KeyS'&&!e.ctrlKey&&!e.metaKey)openSaveClip();
+  if(e.code==='KeyE'&&!e.ctrlKey&&!e.metaKey)openExport();
   if(e.code==='Home')gStart();
   if(e.code==='End')gEnd();
   if(e.code==='Equal'||e.code==='NumpadAdd')zIn();
