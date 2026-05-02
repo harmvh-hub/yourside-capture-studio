@@ -594,7 +594,7 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
 let token=null, me=null, cfg={}, projects=[];
 let activeRecId=null, activeSessId=null, activeProject=null;
 let isLive=false, dur=0, inPt=0, outPt=0;
-let zoom=1, pan=0, drag=null, hls=null;
+let zoom=1, pan=0, drag=null, hls=null, timelineCursorTime=null;
 let expPoll=null, refreshInt=null, liveInt=null;
 let lastExpUrl=null, editClipId=null, selectedClipId=null;
 let sidebarClips=[];
@@ -1087,6 +1087,8 @@ function selectClip(id,recId,ip,op){
 }
 
 // Timeline interaction
+track.addEventListener('mousemove',e=>{ if(dur) timelineCursorTime=p2t(epct(e)*100); });
+track.addEventListener('mouseleave',()=>{ timelineCursorTime=null; });
 track.addEventListener('click',e=>{ if(drag||!dur)return; const t=p2t(epct(e)*100); if(!isLive) vid.currentTime=t; phEl.style.left=t2p(t)+'%'; document.getElementById('tcdis').textContent=hms(t); });
 mkIn.addEventListener('mousedown', e=>{drag='in'; e.preventDefault(); e.stopPropagation();});
 mkOut.addEventListener('mousedown',e=>{drag='out';e.preventDefault(); e.stopPropagation();});
@@ -1117,8 +1119,8 @@ function gStart(){vid.currentTime=0;}
 function gEnd(){if(dur)vid.currentTime=dur;}
 function fBack(){vid.currentTime=Math.max(0,vid.currentTime-1/FPS);}
 function fFwd(){vid.currentTime=Math.min(dur,vid.currentTime+1/FPS);}
-function setIn(){ inPt=vid.currentTime; if(inPt>=outPt)outPt=Math.min(dur,inPt+1); updateMk(); updPt(); phEl.style.left=t2p(inPt)+'%'; flashEl('mkin'); }
-function setOut(){ outPt=vid.currentTime; if(outPt<=inPt)inPt=Math.max(0,outPt-1); updateMk(); updPt(); phEl.style.left=t2p(outPt)+'%'; flashEl('mkout'); }
+function setIn(){ const t=timelineCursorTime!=null?timelineCursorTime:vid.currentTime; inPt=t; if(inPt>=outPt)outPt=Math.min(dur,inPt+1); updateMk(); updPt(); phEl.style.left=t2p(inPt)+'%'; flashEl('mkin'); }
+function setOut(){ const t=timelineCursorTime!=null?timelineCursorTime:vid.currentTime; outPt=t; if(outPt<=inPt)inPt=Math.max(0,outPt-1); updateMk(); updPt(); phEl.style.left=t2p(outPt)+'%'; flashEl('mkout'); }
 function flashEl(id){ const el=document.getElementById(id); el.style.opacity='.2'; setTimeout(()=>el.style.opacity='.7',80); setTimeout(()=>el.style.opacity='1',200); }
 
 window.addEventListener('resize',()=>{ if(dur){buildBars();buildRuler();updateMk();} });
