@@ -104,6 +104,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .ibtn:hover{color:var(--text);border-color:var(--border2)}
 .ibtn.d:hover{color:var(--red);border-color:rgba(224,80,80,.4)}
 .ibtn.g:hover{color:var(--green);border-color:rgba(46,216,160,.4)}
+.ibtn.stop{color:var(--red);border-color:rgba(224,80,80,.4);background:rgba(224,80,80,.1)}
+.ibtn.stop:hover{background:rgba(224,80,80,.22)}
 
 /* CLIPS LIST */
 .clitem{display:flex;align-items:center;gap:7px;padding:7px 12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s}
@@ -903,6 +905,7 @@ async function loadRecs(){
         <span class="badge ${r.status}">${r.status}</span>
       </div>
       <div class="ractions">
+        ${r.status==='recording'?`<button class="ibtn stop" title="Stop recording" onclick="event.stopPropagation();stopRec()">⏹</button>`:''}
         <button class="ibtn" title="Rename" onclick="event.stopPropagation();openRenameRec('${r.id}','${(r.name||'').replace(/'/g,"\\'")}')">✏</button>
         <button class="ibtn d" title="Delete" onclick="event.stopPropagation();delRec('${r.id}')">🗑</button>
       </div>
