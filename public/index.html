@@ -522,6 +522,18 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
   </div>
 </div>
 
+<!-- DELETE RECORDING CONFIRM MODAL -->
+<div class="modalbg" id="delRecModal">
+  <div class="modal">
+    <h3>🗑 Delete recording?</h3>
+    <p id="delRecMsg" style="font-size:13px;color:var(--text2);margin-bottom:16px;line-height:1.5"></p>
+    <div class="frow" style="margin-top:4px">
+      <button class="btn bghost bfull" onclick="closeModal('delRecModal')">Cancel</button>
+      <button class="btn bdanger bfull" id="delRecConfirmBtn" onclick="confirmDelRec()">Delete</button>
+    </div>
+  </div>
+</div>
+
 <!-- DELETE CLIP CONFIRM MODAL -->
 <div class="modalbg" id="delClipModal">
   <div class="modal">
@@ -763,16 +775,12 @@ async function loadStorageView(){
     </div>`).join('');
 }
 
-async function forceDeleteRec(id,name,clipCount){
+function forceDeleteRec(id,name,clipCount){
+  _delRecId=id; _delRecForce=true;
   let msg=`Force delete recording "${name}"?`;
-  if(clipCount>0) msg+=`
-
-⚠ This recording has ${clipCount} saved clip${clipCount!==1?'s':''}. The clips will remain in the database but their source material will be gone.`;
-  if(!confirm(msg))return;
-  const r=await api('DELETE','/api/recordings/force/'+id);
-  if(r.error){toast(r.error,'err');return;}
-  toast('Recording deleted','ok');
-  loadStorageView(); loadRecs(); loadSidebarClips();
+  if(clipCount>0) msg+=`\n\n⚠ This recording has ${clipCount} saved clip${clipCount!==1?'s':''}. The clips will remain in the database but their source material will be gone.`;
+  document.getElementById('delRecMsg').textContent=msg;
+  document.getElementById('delRecModal').classList.add('show');
 }
 
 let _purgeIncludeExports=false;
@@ -972,12 +980,20 @@ async function stopRec(){
   },1500);
 }
 
-async function delRec(id){
-  if(!confirm('Delete this recording?'))return;
-  const r=await api('DELETE','/api/recordings/'+id);
+let _delRecId=null, _delRecForce=false;
+function delRec(id){
+  _delRecId=id; _delRecForce=false;
+  document.getElementById('delRecMsg').textContent='This will permanently remove the recording file.';
+  document.getElementById('delRecModal').classList.add('show');
+}
+async function confirmDelRec(){
+  const id=_delRecId; _delRecId=null;
+  closeModal('delRecModal');
+  const route=_delRecForce?'/api/recordings/force/'+id:'/api/recordings/'+id;
+  const r=await api('DELETE',route);
   if(r.error){toast(r.error,'err');return}
   if(activeRecId===id){ activeRecId=null; vid.style.display='none'; document.getElementById('vph').style.display=''; document.getElementById('tlarea').style.display='none'; }
-  loadRecs();
+  loadRecs(); loadSidebarClips(); loadStorageView();
 }
 
 // ── SELECT RECORDING ────────────────────────────────────────────────────────
