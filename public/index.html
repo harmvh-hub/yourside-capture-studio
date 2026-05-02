@@ -919,6 +919,7 @@ async function loadRecs(){
         <button class="ibtn d" title="Delete" onclick="event.stopPropagation();delRec('${r.id}')">🗑</button>
       </div>
     </div>`).join('');
+  if(!activeRecId) selRec(recs[0].id, recs[0].status==='recording');
 }
 
 function openRenameRec(id,name){
