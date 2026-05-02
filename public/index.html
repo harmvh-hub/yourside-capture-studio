@@ -1142,6 +1142,7 @@ vid.addEventListener('seeked',()=>{
   if(!isLive) document.getElementById('tcov').textContent=smtc(t);
 });
 vid.addEventListener('ended',()=>document.getElementById('pbtn').textContent='▶');
+vid.addEventListener('click',()=>togglePlay());
 
 function togglePlay(){const b=document.getElementById('pbtn');if(vid.paused){vid.play();b.textContent='⏸';}else{vid.pause();b.textContent='▶';}}
 function gStart(){vid.currentTime=0;}
