@@ -12,7 +12,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION_NUM = '2.11';
+const VERSION_NUM = '2.12';
 const GODS = ['Zeus','Hera','Athena','Apollo','Artemis','Ares','Aphrodite','Hermes','Hephaestus','Poseidon','Demeter','Dionysus','Hades','Persephone','Hestia','Eos','Helios','Selene','Nike','Tyche','Nemesis','Iris','Eris','Morpheus','Hypnos','Eros','Pan','Proteus','Triton','Nyx'];
 const VERSION = `${VERSION_NUM} (${GODS[Math.floor(Math.random()*GODS.length)]})`;
 const PORT           = process.env.PORT           || 3000;
@@ -256,7 +256,8 @@ const server = http.createServer(async(req,res)=>{
     if(s&&s.status==='recording'){ let hlsDur=0; try{ const m=path.join(s.hlsDir,'stream.m3u8'); if(fs.existsSync(m)){for(const x of fs.readFileSync(m,'utf8').matchAll(/#EXTINF:([\d.]+)/g))hlsDur+=parseFloat(x[1]);} }catch{} return jres(res,200,{duration:hlsDur||(Date.now()-s.startTime)/1000,live:true,hlsReady:s.hlsReady||false,timecode:s.lastTimecode||null,width:0,height:0}); }
     const fp=path.join(RECORDINGS_DIR,`${id}.mp4`); if(!fs.existsSync(fp))return jres(res,404,{error:'Not found'});
     const info=await probeVideo(fp);
-    return jres(res,200,{duration:await probeDuration(fp),live:false,hlsReady:true,width:info?info.width:1920,height:info?info.height:1080});
+    const stat=fs.statSync(fp);
+    return jres(res,200,{duration:await probeDuration(fp),live:false,hlsReady:true,width:info?info.width:1920,height:info?info.height:1080,created:stat.birthtime.getTime()});
   }
 
   // Waveform

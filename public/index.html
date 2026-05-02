@@ -371,6 +371,7 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
             <button class="tbtn" id="pbtn" onclick="togglePlay()">▶</button>
             <button class="tbtn" onclick="fFwd()">▶</button>
             <button class="tbtn" onclick="gEnd()">⏭</button>
+            <button class="tbtn" id="mbtn" onclick="toggleMute()" title="Mute/Unmute">🔊</button>
           </div>
           <div class="iobts">
             <button class="iobtn in"  onclick="setIn()">[ In</button>
@@ -648,7 +649,7 @@ const hms  = s=>{ if(!isFinite(s)||s<0)return'00:00:00'; return`${pad(Math.floor
 const smtc = s=>{ if(!isFinite(s)||s<0)return'00:00:00:00'; return`${hms(s)}:${pad(Math.floor((s%1)*FPS))}`; };
 const todTC= ()=>{ const n=new Date(); return`${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}:${pad(Math.floor(n.getMilliseconds()/1000*FPS))}`; };
 const livTC= ()=>tcMode==='tod'?todTC():smtc((Date.now()-tcRecStart)/1000);
-const livPausedTC=()=>{ const t=vid.currentTime||0; if(tcMode==='tod'){ const d=new Date(tcRecStart+t*1000); return`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}:${pad(Math.floor(d.getMilliseconds()/1000*FPS))}`; } return smtc(t); };
+const livPausedTC=()=>{ const t=vid.currentTime||0; if(tcMode==='tod'&&tcRecStart>0){ const d=new Date(tcRecStart+t*1000); return`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}:${pad(Math.floor(d.getMilliseconds()/1000*FPS))}`; } return smtc(t); };
 const fsz  = b=>b<1e6?(b/1024).toFixed(1)+' KB':b<1e9?(b/1e6).toFixed(1)+' MB':(b/1e9).toFixed(2)+' GB';
 
 function toast(msg,type=''){
@@ -708,7 +709,8 @@ async function initApp(){
   document.getElementById('hver').textContent=ver;
   document.getElementById('lver').textContent=ver;
   document.title=`YourSide Capture Studio ${ver}`;
-  loadRecs(); loadProjects(); loadSettingsCfg(); loadSidebarClips();
+  loadProjects(); loadSettingsCfg();
+  await loadRecs();
   refreshInt=setInterval(loadRecs,4000);
 }
 
@@ -928,7 +930,12 @@ async function loadRecs(){
         <button class="ibtn d" title="Delete" onclick="event.stopPropagation();delRec('${r.id}')">🗑</button>
       </div>
     </div>`).join('');
-  if(!activeRecId) selRec(recs[0].id, recs[0].status==='recording');
+  if(!activeRecId){
+    const saved=localStorage.getItem('ys_lastRec');
+    const pref=saved&&recs.find(r=>r.id===saved);
+    const rec=pref||recs[0];
+    await selRec(rec.id, rec.status==='recording');
+  }
 }
 
 function openRenameRec(id,name){
@@ -1001,6 +1008,7 @@ async function selRec(id,live){
   if(hls){hls.destroy();hls=null}
   clearInterval(liveInt);
   activeRecId=id; isLive=live;
+  localStorage.setItem('ys_lastRec',id);
   loadRecs(); loadSidebarClips();
   document.getElementById('vloading').style.display='none';
   vid.style.display='block';
@@ -1041,10 +1049,15 @@ async function selRec(id,live){
   } else {
     // Finished MP4 — serve via range-request stream
     vid.src='/stream/'+id; vid.load();
+    tcRecStart=0;
     document.getElementById('tcdis').textContent=smtc(0);
     document.getElementById('tcov').textContent=smtc(0);
     const d=await api('GET','/api/probe/'+id);
     dur=d.duration||0; inPt=0; outPt=dur; zoom=1; pan=0;
+    if(d.created) tcRecStart=d.created;
+    const initTc=livPausedTC();
+    document.getElementById('tcdis').textContent=initTc;
+    document.getElementById('tcov').textContent=initTc;
     requestAnimationFrame(()=>{ buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); });
     document.getElementById('liveprog').style.width='0%';
     fetchWaveform(id);
@@ -1137,7 +1150,7 @@ function selectClip(id,recId,ip,op){
 }
 
 // Timeline interaction
-track.addEventListener('click',e=>{ if(drag||!dur)return; const t=Math.min(p2t(epct(e)*100),dur); vid.currentTime=t; phEl.style.left=t2p(t)+'%'; if(!isLive) document.getElementById('tcdis').textContent=smtc(t); });
+track.addEventListener('click',e=>{ if(drag||!dur)return; const t=Math.min(p2t(epct(e)*100),dur); vid.currentTime=t; phEl.style.left=t2p(t)+'%'; if(!isLive) document.getElementById('tcdis').textContent=livPausedTC(); });
 mkIn.addEventListener('mousedown', e=>{drag='in'; e.preventDefault(); e.stopPropagation();});
 mkOut.addEventListener('mousedown',e=>{drag='out';e.preventDefault(); e.stopPropagation();});
 document.addEventListener('mousemove',e=>{
@@ -1155,22 +1168,23 @@ vid.addEventListener('timeupdate',()=>{
   if(clipPlayEnd!==null&&t>=clipPlayEnd){ vid.pause(); vid.currentTime=clipPlayEnd; clipPlayEnd=null; document.getElementById('pbtn').textContent='▶'; }
   if(t<pan||t>pan+vd()){pan=Math.max(0,t-vd()*.1);buildRuler();updateMk();}
   phEl.style.left=t2p(t)+'%';
-  if(!isLive){ document.getElementById('tcdis').textContent=smtc(t); document.getElementById('tcov').textContent=smtc(t); }
+  if(!isLive){ const tc=livPausedTC(); document.getElementById('tcdis').textContent=tc; document.getElementById('tcov').textContent=tc; }
 });
 vid.addEventListener('seeked',()=>{
-  if(!dur)return; const t=vid.currentTime;
-  phEl.style.left=t2p(t)+'%';
-  if(!isLive){ document.getElementById('tcdis').textContent=smtc(t); document.getElementById('tcov').textContent=smtc(t); }
+  if(!dur)return;
+  phEl.style.left=t2p(vid.currentTime)+'%';
+  if(!isLive){ const tc=livPausedTC(); document.getElementById('tcdis').textContent=tc; document.getElementById('tcov').textContent=tc; }
 });
 vid.addEventListener('ended',()=>document.getElementById('pbtn').textContent='▶');
 vid.addEventListener('click',()=>togglePlay());
 
 function togglePlay(){const b=document.getElementById('pbtn');if(vid.paused){vid.play();b.textContent='⏸';}else{vid.pause();b.textContent='▶';}}
+function toggleMute(){vid.muted=!vid.muted;document.getElementById('mbtn').textContent=vid.muted?'🔇':'🔊';}
 function gStart(){vid.currentTime=0;}
 function gEnd(){if(dur)vid.currentTime=dur;}
 function fBack(){vid.currentTime=Math.max(0,vid.currentTime-1/FPS);}
 function fFwd(){vid.currentTime=Math.min(dur,vid.currentTime+1/FPS);}
-function setIn(){ inPt=vid.currentTime; outPt=dur; outPtAuto=true; updateMk(); updPt(); phEl.style.left=t2p(inPt)+'%'; flashEl('mkin'); }
+function setIn(){ inPt=vid.currentTime; outPt=dur; outPtAuto=true; pan=inPt; document.getElementById('tlscroll').scrollLeft=0; buildBars(); buildRuler(); updateMk(); updPt(); phEl.style.left=t2p(inPt)+'%'; flashEl('mkin'); }
 function setOut(){ outPtAuto=false; outPt=vid.currentTime; if(outPt<=inPt)inPt=Math.max(0,outPt-1); updateMk(); updPt(); phEl.style.left=t2p(outPt)+'%'; flashEl('mkout'); }
 function flashEl(id){ const el=document.getElementById(id); el.style.opacity='.2'; setTimeout(()=>el.style.opacity='.7',80); setTimeout(()=>el.style.opacity='1',200); }
 
