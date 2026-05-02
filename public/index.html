@@ -515,6 +515,18 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
   </div>
 </div>
 
+<!-- DELETE CLIP CONFIRM MODAL -->
+<div class="modalbg" id="delClipModal">
+  <div class="modal">
+    <h3>🗑 Delete clip?</h3>
+    <p id="delClipName" style="font-size:13px;color:var(--text2);margin-bottom:16px;font-family:var(--mono);word-break:break-all"></p>
+    <div class="frow" style="margin-top:4px">
+      <button class="btn bghost bfull" onclick="closeModal('delClipModal')">Cancel</button>
+      <button class="btn bdanger bfull" id="delClipConfirmBtn" onclick="confirmDelClip()">Delete</button>
+    </div>
+  </div>
+</div>
+
 <!-- SAVE CLIP MODAL -->
 <div class="modalbg" id="saveModal">
   <div class="modal">
@@ -1132,7 +1144,7 @@ function renderSidebarClips(){
       </div>
       <div class="clactions">
         <button class="ibtn g" title="Export" onclick="event.stopPropagation();exportClipDirect('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">↓</button>
-        <button class="ibtn d" title="Delete" onclick="event.stopPropagation();delClip('${c.id}')">🗑</button>
+        <button class="ibtn d" title="Delete" onclick="event.stopPropagation();delClip('${c.id}','${c.name.replace(/'/g,"\\'")}')">🗑</button>
       </div>
     </div>`).join('');
 }
@@ -1153,7 +1165,7 @@ async function loadAllClips(){
         <button class="ibtn" title="Load in editor" onclick="loadClip('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">▶</button>
         <button class="ibtn" title="Edit" onclick="editClip('${c.id}','${c.name}','${(c.notes||'').replace(/'/g,"\\'")}')">✏</button>
         ${c.export_file?`<a href="${c.export_file}" download><button class="ibtn" title="Download">⬇</button></a>`:''}
-        <button class="ibtn d" title="Delete" onclick="delClip('${c.id}')">🗑</button>
+        <button class="ibtn d" title="Delete" onclick="delClip('${c.id}','${c.name.replace(/'/g,"\\'")}')">🗑</button>
       </div>
     </div>`).join(''):'<div class="empty" style="padding:20px 0">No saved clips</div>';
 }
@@ -1192,12 +1204,20 @@ function editClip(id,name,notes){
   editClipId=id; openSaveClip();
   setTimeout(()=>{ document.getElementById('clipName').value=name; document.getElementById('clipNotes').value=notes; },0);
 }
-async function delClip(id){
-  if(!confirm('Delete this clip?'))return;
-  await api('DELETE','/api/clips/'+id);
+let _delClipId=null;
+function delClip(id,name){
+  _delClipId=id;
+  document.getElementById('delClipName').textContent=name||id.slice(0,8)+'…';
+  document.getElementById('delClipModal').classList.add('show');
+}
+async function confirmDelClip(){
+  const id=_delClipId; _delClipId=null;
+  closeModal('delClipModal');
+  const r=await api('DELETE','/api/clips/'+id);
+  if(r.error){toast(r.error,'err');return;}
   if(selectedClipId===id) selectedClipId=null;
   if(editClipId===id) editClipId=null;
-  toast('Clip deleted'); loadSidebarClips(); loadAllClips();
+  toast('Clip deleted','ok'); loadSidebarClips(); loadAllClips();
 }
 async function loadClip(clipId,recId,ip,op){
   closePanel('clips');
