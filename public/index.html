@@ -605,7 +605,7 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
 // ── STATE ──────────────────────────────────────────────────────────────────
 let token=null, me=null, cfg={}, projects=[];
 let activeRecId=null, activeSessId=null, activeProject=null;
-let isLive=false, dur=0, inPt=0, outPt=0;
+let isLive=false, dur=0, inPt=0, outPt=0, outPtAuto=true;
 let zoom=1, pan=0, drag=null, hls=null, timelineCursorTime=null;
 let expPoll=null, refreshInt=null, liveInt=null;
 let lastExpUrl=null, editClipId=null, selectedClipId=null;
@@ -990,14 +990,14 @@ async function selRec(id,live){
       hls.on(Hls.Events.MANIFEST_PARSED,()=>{ vid.currentTime=0; vid.play(); });
       hls.on(Hls.Events.FRAG_LOADED,(e,data)=>{
         const nd=data.frag.start+data.frag.duration;
-        if(nd>dur){ const prev=dur; dur=nd; if(outPt>=prev-3||outPt<1)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); document.getElementById('liveprog').style.width='100%'; renderClipOverlays(); }
+        if(nd>dur){ dur=nd; if(outPtAuto)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); document.getElementById('liveprog').style.width='100%'; renderClipOverlays(); }
       });
-      hls.on(Hls.Events.LEVEL_UPDATED,(e,data)=>{ const nd=data.details?.totalduration||0; if(nd>dur){ const prev=dur; dur=nd; if(outPt>=prev-3||outPt<1)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); } });
+      hls.on(Hls.Events.LEVEL_UPDATED,(e,data)=>{ const nd=data.details?.totalduration||0; if(nd>dur){ dur=nd; if(outPtAuto)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); } });
       hls.on(Hls.Events.ERROR,(e,data)=>{ if(data.fatal)console.warn('HLS',data.type,data.details); });
     } else if(vid.canPlayType('application/vnd.apple.mpegurl')){
       vid.src=hlsUrl; vid.currentTime=0; vid.play();
     }
-    dur=0; inPt=0; outPt=0; zoom=1; pan=0;
+    dur=0; inPt=0; outPt=0; outPtAuto=true; zoom=1; pan=0;
     requestAnimationFrame(()=>{ buildBars(); buildRuler(); updateMk(); updPt(); });
     document.getElementById('liveprog').style.width='0%';
     // Live timecode tick loop
@@ -1005,7 +1005,7 @@ async function selRec(id,live){
     // Fallback server poll for timecode + duration
     liveInt=setInterval(async()=>{
       const d=await api('GET','/api/probe/'+id);
-      if(d.duration&&d.duration>dur){ const prev=dur; dur=d.duration; if(outPt>=prev-3||outPt<1)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); }
+      if(d.duration&&d.duration>dur){ dur=d.duration; if(outPtAuto)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); }
       if(d.timecode) document.getElementById('tcov').textContent=d.timecode;
     },3000);
   } else {
@@ -1112,7 +1112,7 @@ document.addEventListener('mousemove',e=>{
   if(!drag||!dur)return;
   const t=p2t(epct(e)*100);
   if(drag==='in'){inPt=Math.max(0,Math.min(t,outPt-.5));vid.currentTime=inPt;}
-  else{outPt=Math.max(inPt+.5,Math.min(t,dur));vid.currentTime=outPt;}
+  else{outPtAuto=false;outPt=Math.max(inPt+.5,Math.min(t,dur));vid.currentTime=outPt;}
   updateMk(); updPt();
 });
 document.addEventListener('mouseup',()=>drag=null);
@@ -1136,7 +1136,7 @@ function gEnd(){if(dur)vid.currentTime=dur;}
 function fBack(){vid.currentTime=Math.max(0,vid.currentTime-1/FPS);}
 function fFwd(){vid.currentTime=Math.min(dur,vid.currentTime+1/FPS);}
 function setIn(){ inPt=vid.currentTime; if(inPt>=outPt)outPt=Math.min(dur,inPt+1); updateMk(); updPt(); phEl.style.left=t2p(inPt)+'%'; flashEl('mkin'); }
-function setOut(){ outPt=vid.currentTime; if(outPt<=inPt)inPt=Math.max(0,outPt-1); updateMk(); updPt(); phEl.style.left=t2p(outPt)+'%'; flashEl('mkout'); }
+function setOut(){ outPtAuto=false; outPt=vid.currentTime; if(outPt<=inPt)inPt=Math.max(0,outPt-1); updateMk(); updPt(); phEl.style.left=t2p(outPt)+'%'; flashEl('mkout'); }
 function flashEl(id){ const el=document.getElementById(id); el.style.opacity='.2'; setTimeout(()=>el.style.opacity='.7',80); setTimeout(()=>el.style.opacity='1',200); }
 
 window.addEventListener('resize',()=>{ if(dur){buildBars();buildRuler();updateMk();} });

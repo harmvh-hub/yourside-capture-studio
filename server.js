@@ -361,25 +361,44 @@ const server = http.createServer(async(req,res)=>{
         sess.progress=2;
 
         if(isLiveHls){
-          // ── Single-pass with double-ss for A/V sync ───────────────────────
-          // Fast-seek to a preroll point, then output-side accurate seek for
-          // the last few seconds. Decoding both streams together from the same
-          // segment ensures audio and video are in sync at the clip boundary.
-          // Without this, fast-seek alone lets audio/video land on different
-          // segment boundaries → audio arrives late in the output.
-          const preroll = Math.min(5, inPoint);
+          // ── Concat-based clip: parse the manifest, pick the exact segments ─
+          // Seeking in a live/growing .m3u8 is unreliable because HLS.js and
+          // FFmpeg can disagree on the timeline origin (especially when the SRT
+          // source has non-zero starting PTS). Parsing the manifest ourselves
+          // and feeding only the relevant TS segments via -f concat gives us
+          // a known, stable timeline that matches what HLS.js reported.
+          // Output-side -ss is at most one segment long (≤2 s) → accurate.
+          // This mirrors finaliseMp4 which produces correct sync for finished recs.
+          const hlsDir = path.dirname(inputFile);
+          const manifest = fs.readFileSync(inputFile,'utf8');
+          const segs=[];
+          let segT=0;
+          const mlines=manifest.split('\n');
+          for(let i=0;i<mlines.length;i++){
+            const m=mlines[i].match(/^#EXTINF:([\d.]+)/);
+            if(m&&mlines[i+1]?.trim()&&!mlines[i+1].startsWith('#')){
+              const d=parseFloat(m[1]);
+              segs.push({file:path.join(hlsDir,mlines[i+1].trim()),start:segT,dur:d});
+              segT+=d; i++;
+            }
+          }
+          const clipSegs=segs.filter(sg=>sg.start+sg.dur>inPoint&&sg.start<outPoint);
+          if(!clipSegs.length) throw new Error('No HLS segments cover the clip range');
+          const concatFile=path.join(EXPORTS_DIR,`concat_${exportId}.txt`);
+          fs.writeFileSync(concatFile,clipSegs.map(sg=>`file '${sg.file}'`).join('\n'));
+          const segOffset=Math.max(0,inPoint-clipSegs[0].start);
           await spawnFfmpeg([
             '-y',
-            '-fflags', '+genpts+discardcorrupt',
-            '-ss', String(inPoint - preroll),
-            '-i', inputFile,
-            '-ss', String(preroll),
+            '-f','concat','-safe','0',
+            '-i', concatFile,
+            '-ss', String(segOffset),
             '-t', String(duration),
             '-vf', videoFilter,
-            '-af', 'aresample=async=1:min_hard_comp=0.1',
+            '-af', 'aresample=async=1:first_pts=0',
             ...encodeArgs,
             exportFile,
           ]);
+          try{fs.unlinkSync(concatFile);}catch{}
 
         } else {
           // ── Two-pass: copy → re-encode ────────────────────────────────────
