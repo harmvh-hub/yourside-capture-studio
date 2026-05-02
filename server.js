@@ -1,6 +1,6 @@
 'use strict';
 /**
- * YourSide Capture Studio — v2.3
+ * YourSide Capture Studio — v2.5
  * Fixes: clip playback, clip list/markers, waveform, clip delete
  * New: export from list, 16:9/9:16 export with crop, recording names
  */
@@ -12,7 +12,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION = '2.3';
+const VERSION = '2.5';
 const PORT           = process.env.PORT           || 3000;
 const RECORDINGS_DIR = process.env.RECORDINGS_DIR || path.join(__dirname, 'recordings');
 const EXPORTS_DIR    = process.env.EXPORTS_DIR    || path.join(__dirname, 'exports');
