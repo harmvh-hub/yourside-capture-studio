@@ -273,7 +273,7 @@ const server = http.createServer(async(req,res)=>{
     const id=uuid(); const hlsDir=path.join(RECORDINGS_DIR,id); fs.mkdirSync(hlsDir,{recursive:true});
     // Register recording with name
     db.prepare('INSERT INTO recordings (id,name,project_id) VALUES (?,?,?)').run(id,name||'',projectId);
-    const proc=spawn('ffmpeg',['-y','-fflags','+discardcorrupt+genpts','-analyzeduration','10000000','-probesize','10000000','-i',srtUrl,'-c:v','libx264','-preset','ultrafast','-b:v',`${proj.video_bitrate||4000}k`,'-c:a','aac','-b:a',`${proj.audio_bitrate||128}k`,'-f','hls','-hls_time','2','-hls_list_size','0','-hls_flags','append_list','-hls_segment_filename',path.join(hlsDir,'seg%05d.ts'),path.join(hlsDir,'stream.m3u8')],{stdio:['ignore','pipe','pipe']});
+    const proc=spawn('ffmpeg',['-y','-fflags','+discardcorrupt+genpts','-analyzeduration','10000000','-probesize','10000000','-i',srtUrl,'-sn','-c:v','libx264','-preset','ultrafast','-b:v',`${proj.video_bitrate||4000}k`,'-c:a','aac','-b:a',`${proj.audio_bitrate||128}k`,'-f','hls','-hls_time','2','-hls_list_size','0','-hls_flags','append_list','-hls_segment_filename',path.join(hlsDir,'seg%05d.ts'),path.join(hlsDir,'stream.m3u8')],{stdio:['ignore','pipe','pipe']});
     const mp4File=path.join(RECORDINGS_DIR,`${id}.mp4`);
     sessions.set(id,{proc,hlsDir,mp4File,startTime:Date.now(),projectId,status:'recording',hlsReady:false,lastTimecode:null});
     proc.stderr.on('data',d=>{ const t=d.toString(),s=sessions.get(id); if(!s)return; s.lastLog=t.trim().split('\n').pop(); const tc=t.match(/timecode[=: ]+(\d{2}:\d{2}:\d{2}[;:]\d{2})/i); if(tc)s.lastTimecode=tc[1]; });
