@@ -1,6 +1,6 @@
 'use strict';
 /**
- * YourSide Capture Studio — v2.5
+ * YourSide Capture Studio — v2.7
  * Fixes: clip playback, clip list/markers, waveform, clip delete
  * New: export from list, 16:9/9:16 export with crop, recording names
  */
@@ -12,7 +12,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION = '2.5';
+const VERSION = '2.7';
 const PORT           = process.env.PORT           || 3000;
 const RECORDINGS_DIR = process.env.RECORDINGS_DIR || path.join(__dirname, 'recordings');
 const EXPORTS_DIR    = process.env.EXPORTS_DIR    || path.join(__dirname, 'exports');
@@ -361,14 +361,22 @@ const server = http.createServer(async(req,res)=>{
         sess.progress=2;
 
         if(isLiveHls){
-          // ── Single-pass: re-encode directly from HLS playlist ─────────────
+          // ── Single-pass with double-ss for A/V sync ───────────────────────
+          // Fast-seek to a preroll point, then output-side accurate seek for
+          // the last few seconds. Decoding both streams together from the same
+          // segment ensures audio and video are in sync at the clip boundary.
+          // Without this, fast-seek alone lets audio/video land on different
+          // segment boundaries → audio arrives late in the output.
+          const preroll = Math.min(5, inPoint);
           await spawnFfmpeg([
             '-y',
-            '-ss', String(inPoint),
+            '-fflags', '+genpts+discardcorrupt',
+            '-ss', String(inPoint - preroll),
             '-i', inputFile,
+            '-ss', String(preroll),
             '-t', String(duration),
             '-vf', videoFilter,
-            '-af', 'aresample=async=1:first_pts=0',
+            '-af', 'aresample=async=1:min_hard_comp=0.1',
             ...encodeArgs,
             exportFile,
           ]);
