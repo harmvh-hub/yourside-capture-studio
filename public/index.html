@@ -659,6 +659,7 @@ async function initApp(){
   const ver='v'+(v.version||'?');
   document.getElementById('hver').textContent=ver;
   document.getElementById('lver').textContent=ver;
+  document.title=`YourSide Capture Studio ${ver}`;
   loadRecs(); loadProjects(); loadSettingsCfg(); loadSidebarClips();
   refreshInt=setInterval(loadRecs,4000);
 }
