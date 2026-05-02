@@ -1129,8 +1129,10 @@ document.addEventListener('mousemove',e=>{
 });
 document.addEventListener('mouseup',()=>drag=null);
 
+let clipPlayEnd=null;
 vid.addEventListener('timeupdate',()=>{
   if(!dur)return; const t=vid.currentTime;
+  if(clipPlayEnd!==null&&t>=clipPlayEnd){ vid.pause(); vid.currentTime=clipPlayEnd; clipPlayEnd=null; document.getElementById('pbtn').textContent='▶'; }
   if(t<pan||t>pan+vd()){pan=Math.max(0,t-vd()*.1);buildRuler();updateMk();}
   phEl.style.left=t2p(t)+'%';
   document.getElementById('tcdis').textContent=hms(t);
@@ -1175,6 +1177,7 @@ function renderSidebarClips(){
         <div class="clmeta">${hms(c.in_point)} – ${hms(c.out_point)} · ${hms(c.out_point-c.in_point)}</div>
       </div>
       <div class="clactions">
+        <button class="ibtn" title="Play clip (Shift+Space)" onclick="event.stopPropagation();playClip('${c.recording_id}',${c.in_point},${c.out_point})">▶</button>
         <button class="ibtn g" title="Export" onclick="event.stopPropagation();exportClipDirect('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">↓</button>
         <button class="ibtn d" title="Delete" onclick="event.stopPropagation();delClip('${c.id}','${c.name.replace(/'/g,"\\'")}')">🗑</button>
       </div>
@@ -1194,7 +1197,8 @@ async function loadAllClips(){
       </div>
       <div class="lacts">
         <button class="ibtn g" title="Export" onclick="exportClipDirect('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">↓</button>
-        <button class="ibtn" title="Load in editor" onclick="loadClip('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">▶</button>
+        <button class="ibtn" title="Play clip (Shift+Space)" onclick="playClip('${c.recording_id}',${c.in_point},${c.out_point})">▶</button>
+        <button class="ibtn" title="Load in editor" onclick="loadClip('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">⤴</button>
         <button class="ibtn" title="Edit" onclick="editClip('${c.id}','${c.name}','${(c.notes||'').replace(/'/g,"\\'")}')">✏</button>
         ${c.export_file?`<a href="${c.export_file}" download><button class="ibtn" title="Download">⬇</button></a>`:''}
         <button class="ibtn d" title="Delete" onclick="delClip('${c.id}','${c.name.replace(/'/g,"\\'")}')">🗑</button>
@@ -1258,6 +1262,17 @@ async function loadClip(clipId,recId,ip,op){
   updateMk(); updPt(); renderClipOverlays(); renderSidebarClips();
   if(!isLive) vid.currentTime=ip;
   toast('Clip loaded');
+}
+async function playClip(recId,ip,op){
+  if(activeRecId!==recId){ closePanel('clips'); await selRec(recId,false); }
+  await new Promise(r=>setTimeout(r,200));
+  clipPlayEnd=op; vid.currentTime=ip;
+  vid.play(); document.getElementById('pbtn').textContent='⏸';
+}
+function playSelectedClip(){
+  const c=sidebarClips.find(c=>c.id===selectedClipId);
+  if(c) playClip(c.recording_id,c.in_point,c.out_point);
+  else toast('Select a clip first','err');
 }
 
 // ── EXPORT ─────────────────────────────────────────────────────────────────
@@ -1341,7 +1356,8 @@ async function toFacebook(){
 document.addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
   if(!document.getElementById('app').classList.contains('show'))return;
-  if(e.code==='Space'){e.preventDefault();togglePlay();}
+  if(e.code==='Space'&&!e.shiftKey){e.preventDefault();togglePlay();}
+  if(e.code==='Space'&&e.shiftKey){e.preventDefault();playSelectedClip();}
   if(e.code==='KeyI')setIn();
   if(e.code==='KeyO')setOut();
   if(e.code==='KeyS'&&!e.ctrlKey&&!e.metaKey)openSaveClip();
