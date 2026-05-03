@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION_NUM = '2.15';
+const VERSION_NUM = '2.15.2';
 const GODS = ['Zeus','Hera','Athena','Apollo','Artemis','Ares','Aphrodite','Hermes','Hephaestus','Poseidon','Demeter','Dionysus','Hades','Persephone','Hestia','Eos','Helios','Selene','Nike','Tyche','Nemesis','Iris','Eris','Morpheus','Hypnos','Eros','Pan','Proteus','Triton','Nyx'];
 const VERSION = `${VERSION_NUM} (${GODS[Math.floor(Math.random()*GODS.length)]})`;
 const PORT           = process.env.PORT           || 3000;
@@ -338,34 +338,56 @@ const server = http.createServer(async(req,res)=>{
     const id=uuid(); const hlsDir=path.join(RECORDINGS_DIR,id); fs.mkdirSync(hlsDir,{recursive:true});
     // Register recording with name
     db.prepare('INSERT INTO recordings (id,name,project_id) VALUES (?,?,?)').run(id,name||'',projectId);
-    const proc=spawn('ffmpeg',['-y','-loglevel','verbose','-fflags','+discardcorrupt+genpts','-analyzeduration','10000000','-probesize','10000000','-i',srtUrl,'-sn','-c:v','libx264','-preset','ultrafast','-b:v',`${proj.video_bitrate||4000}k`,'-c:a','aac','-b:a',`${proj.audio_bitrate||128}k`,'-f','hls','-hls_time','2','-hls_list_size','0','-hls_flags','append_list','-hls_segment_filename',path.join(hlsDir,'seg%05d.ts'),path.join(hlsDir,'stream.m3u8')],{stdio:['ignore','pipe','pipe']});
+    // Pick a local UDP port for the SRT→UDP relay (one per session, staggered by session count)
+    const localPort=22000+Math.floor(Math.random()*3000);
     const mp4File=path.join(RECORDINGS_DIR,`${id}.mp4`);
-    sessions.set(id,{proc,hlsDir,mp4File,startTime:Date.now(),projectId,status:'recording',hlsReady:false,lastTimecode:null});
+    sessions.set(id,{proc:null,relay:null,hlsDir,mp4File,startTime:Date.now(),projectId,status:'recording',hlsReady:false,lastTimecode:null,stats:{}});
+
+    // FFmpeg reads from local UDP — start first so the socket is open before relay sends
+    const proc=spawn('ffmpeg',['-y','-fflags','+discardcorrupt+genpts','-analyzeduration','10000000','-probesize','10000000','-i',`udp://127.0.0.1:${localPort}?fifo_size=5000000&overrun_nonfatal=1`,'-sn','-c:v','libx264','-preset','ultrafast','-b:v',`${proj.video_bitrate||4000}k`,'-c:a','aac','-b:a',`${proj.audio_bitrate||128}k`,'-f','hls','-hls_time','2','-hls_list_size','0','-hls_flags','append_list','-hls_segment_filename',path.join(hlsDir,'seg%05d.ts'),path.join(hlsDir,'stream.m3u8')],{stdio:['ignore','pipe','pipe']});
+    sessions.get(id).proc=proc;
     proc.stderr.on('data',d=>{
       const t=d.toString(),s=sessions.get(id); if(!s)return;
-      // lastLog: skip noisy SRT/HLS verbose lines, keep progress + meaningful messages
-      const logLines=t.split('\n').filter(l=>{ const lt=l.trim(); return lt&&!lt.match(/^\[srt\s|^\[hls\s|^msTimeStamp=|^pktSent=|^pktRecv=|^byteAvail/i); });
+      const logLines=t.split('\n').filter(l=>{const lt=l.trim();return lt&&!lt.match(/^\[hls\s/i);});
       if(logLines.length) s.lastLog=logLines[logLines.length-1].trim();
-      // Timecode
       const tc=t.match(/timecode[=: ]+(\d{2}:\d{2}:\d{2}[;:]\d{2})/i); if(tc)s.lastTimecode=tc[1];
-      // FFmpeg progress line — parse each field independently (bitrate may be N/A early on)
-      const frm=t.match(/frame=\s*(\d+)/); if(frm){if(!s.stats)s.stats={ts:Date.now()};s.stats.frame=parseInt(frm[1]);s.stats.ts=Date.now();}
-      const fp=t.match(/fps=\s*([\d.]+)/); if(fp){if(!s.stats)s.stats={ts:Date.now()};s.stats.fps=parseFloat(fp[1]);}
-      const br=t.match(/bitrate=\s*([\d.]+)kbits\/s/); if(br){if(!s.stats)s.stats={ts:Date.now()};s.stats.bitrate=parseFloat(br[1]);}
-      // SRT verbose stats: msRTT, mbpsBandwidth, pktRcvLoss, pktRcvDrop
-      const rtt=t.match(/msRTT=\s*([\d.]+)/i); if(rtt){if(!s.stats)s.stats={ts:Date.now()};s.stats.rtt=parseFloat(rtt[1]);}
-      const bw=t.match(/mbpsBandwidth=\s*([\d.]+)/i); if(bw){if(!s.stats)s.stats={ts:Date.now()};s.stats.bandwidth=parseFloat(bw[1]);}
-      const lm=t.match(/pktRcvLoss=\s*(\d+)/i); if(lm){if(!s.stats)s.stats={ts:Date.now()};s.stats.pktLoss=parseInt(lm[1]);}
-      const dm=t.match(/pktRcvDrop=\s*(\d+)/i); if(dm){if(!s.stats)s.stats={ts:Date.now()};s.stats.pktDrop=parseInt(dm[1]);}
+      const frm=t.match(/frame=\s*(\d+)/); if(frm){s.stats.frame=parseInt(frm[1]);s.stats.ts=Date.now();}
+      const fp=t.match(/fps=\s*([\d.]+)/); if(fp) s.stats.fps=parseFloat(fp[1]);
     });
     proc.on('error',err=>{ const s=sessions.get(id); if(s){s.status='error';s.error=err.message;} });
-    proc.on('close',async code=>{ const s=sessions.get(id); if(!s)return; if(s.status==='stopping'){s.status='finalising'; try{await finaliseMp4(hlsDir,mp4File);s.status='ready';}catch(e){s.status='error';s.error=e.message;} }else{s.status=code===0?'ready':'error';} s.proc=null; });
+    proc.on('close',async code=>{ const s=sessions.get(id); if(!s)return; if(s.relay){try{s.relay.kill('SIGTERM');}catch{} s.relay=null;} if(s.status==='stopping'){s.status='finalising'; try{await finaliseMp4(hlsDir,mp4File);s.status='ready';}catch(e){s.status='error';s.error=e.message;} }else{s.status=code===0?'ready':'error';} s.proc=null; });
+
+    // srt-live-transmit relay: SRT source → UDP local port, outputs JSON stats
+    const relay=spawn('srt-live-transmit',['-s','300','-pf','json','-q',srtUrl,`udp://127.0.0.1:${localPort}?pkt_size=1316`],{stdio:['ignore','pipe','pipe']});
+    sessions.get(id).relay=relay;
+    let relayBuf='';
+    const onRelayData=d=>{
+      const s=sessions.get(id); if(!s)return;
+      relayBuf+=d.toString();
+      let nl;
+      while((nl=relayBuf.indexOf('\n'))!==-1){
+        const line=relayBuf.slice(0,nl).trim(); relayBuf=relayBuf.slice(nl+1);
+        if(!line.startsWith('{'))continue;
+        try{
+          const j=JSON.parse(line);
+          if(j.link?.rtt!=null) s.stats.rtt=j.link.rtt;
+          if(j.link?.bandwidth!=null) s.stats.bandwidth=j.link.bandwidth;
+          if(j.recv?.packetsLost!=null) s.stats.pktLoss=j.recv.packetsLost;
+          if(j.recv?.packetsDropped!=null) s.stats.pktDrop=j.recv.packetsDropped;
+          if(j.recv?.mbitRate!=null) s.stats.mbitRate=j.recv.mbitRate;
+          s.stats.ts=Date.now();
+        }catch{}
+      }
+    };
+    relay.stdout.on('data',onRelayData);
+    relay.stderr.on('data',onRelayData);
+    relay.on('error',()=>{});
     try{ await waitHls(hlsDir,30000); const s=sessions.get(id); if(s)s.hlsReady=true; return jres(res,200,{id,status:'recording',hlsUrl:`/hls/${id}/stream.m3u8`,hlsReady:true}); }
     catch(e){ const s=sessions.get(id); if(s){s.status='error';s.error='Stream did not start';} return jres(res,500,{error:'Stream did not start. Check SRT URL and source.'}); }
   }
 
   // Stop recording
-  if(req.method==='POST'&&p.startsWith('/api/record/stop/')){ const id=p.replace('/api/record/stop/',''); const s=sessions.get(id); if(!s||!s.proc)return jres(res,404,{error:'Not found'}); s.status='stopping'; s.proc.kill('SIGTERM'); return jres(res,200,{id,status:'finalising'}); }
+  if(req.method==='POST'&&p.startsWith('/api/record/stop/')){ const id=p.replace('/api/record/stop/',''); const s=sessions.get(id); if(!s||!s.proc)return jres(res,404,{error:'Not found'}); s.status='stopping'; if(s.relay){try{s.relay.kill('SIGTERM');}catch{} s.relay=null;} s.proc.kill('SIGTERM'); return jres(res,200,{id,status:'finalising'}); }
 
   // Rename recording
   if(req.method==='POST'&&p.startsWith('/api/record/rename/')){ const id=p.replace('/api/record/rename/',''); const{name}=await parseBody(req); db.prepare("INSERT INTO recordings (id,name) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name").run(id,name||''); return jres(res,200,{ok:true}); }

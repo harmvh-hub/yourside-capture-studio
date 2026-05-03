@@ -692,8 +692,8 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
   <div class="modal modal-wide">
     <h3>📊 SRT Stream Statistics <button class="panclose" onclick="closeStats()" style="float:right">×</button></h3>
     <div class="stats-grid" id="statsGrid">
-      <div class="stat-box"><div class="stat-val" id="st-bitrate">—</div><div class="stat-lbl">Encode (kbps)</div></div>
-      <div class="stat-box"><div class="stat-val" id="st-bandwidth">—</div><div class="stat-lbl">Bandwidth (Mbps)</div></div>
+      <div class="stat-box"><div class="stat-val" id="st-bitrate">—</div><div class="stat-lbl">Input (kbps)</div></div>
+      <div class="stat-box"><div class="stat-val" id="st-bandwidth">—</div><div class="stat-lbl">Link BW (Mbps)</div></div>
       <div class="stat-box"><div class="stat-val" id="st-fps">—</div><div class="stat-lbl">Frame Rate</div></div>
       <div class="stat-box"><div class="stat-val" id="st-rtt">—</div><div class="stat-lbl">RTT (ms)</div></div>
       <div class="stat-box"><div class="stat-val" id="st-loss">—</div><div class="stat-lbl">Pkt Loss</div></div>
@@ -1077,7 +1077,7 @@ async function refreshStats(){
   if(!activeRecId)return;
   const d=await api('GET','/api/srt-stats/'+activeRecId); if(!d.live){document.getElementById('st-bitrate').textContent='—';return;}
   const s=d.stats||{};
-  document.getElementById('st-bitrate').textContent=s.bitrate!=null?s.bitrate.toFixed(0):'—';
+  document.getElementById('st-bitrate').textContent=s.mbitRate!=null?Math.round(s.mbitRate*1000):'—';
   document.getElementById('st-bandwidth').textContent=s.bandwidth!=null?s.bandwidth.toFixed(2):'—';
   document.getElementById('st-fps').textContent=s.fps!=null?s.fps.toFixed(1):'—';
   document.getElementById('st-rtt').textContent=s.rtt!=null?s.rtt.toFixed(1):'—';
