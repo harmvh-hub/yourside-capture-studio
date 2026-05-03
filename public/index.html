@@ -692,10 +692,12 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
   <div class="modal modal-wide">
     <h3>📊 SRT Stream Statistics <button class="panclose" onclick="closeStats()" style="float:right">×</button></h3>
     <div class="stats-grid" id="statsGrid">
-      <div class="stat-box"><div class="stat-val" id="st-bitrate">—</div><div class="stat-lbl">Bitrate (kbps)</div></div>
+      <div class="stat-box"><div class="stat-val" id="st-bitrate">—</div><div class="stat-lbl">Encode (kbps)</div></div>
+      <div class="stat-box"><div class="stat-val" id="st-bandwidth">—</div><div class="stat-lbl">Bandwidth (Mbps)</div></div>
       <div class="stat-box"><div class="stat-val" id="st-fps">—</div><div class="stat-lbl">Frame Rate</div></div>
       <div class="stat-box"><div class="stat-val" id="st-rtt">—</div><div class="stat-lbl">RTT (ms)</div></div>
       <div class="stat-box"><div class="stat-val" id="st-loss">—</div><div class="stat-lbl">Pkt Loss</div></div>
+      <div class="stat-box"><div class="stat-val" id="st-drop">—</div><div class="stat-lbl">Pkt Dropped</div></div>
       <div class="stat-box"><div class="stat-val" id="st-frame">—</div><div class="stat-lbl">Frames</div></div>
       <div class="stat-box"><div class="stat-val" id="st-uptime">—</div><div class="stat-lbl">Uptime (s)</div></div>
     </div>
@@ -1076,9 +1078,11 @@ async function refreshStats(){
   const d=await api('GET','/api/srt-stats/'+activeRecId); if(!d.live){document.getElementById('st-bitrate').textContent='—';return;}
   const s=d.stats||{};
   document.getElementById('st-bitrate').textContent=s.bitrate!=null?s.bitrate.toFixed(0):'—';
+  document.getElementById('st-bandwidth').textContent=s.bandwidth!=null?s.bandwidth.toFixed(2):'—';
   document.getElementById('st-fps').textContent=s.fps!=null?s.fps.toFixed(1):'—';
   document.getElementById('st-rtt').textContent=s.rtt!=null?s.rtt.toFixed(1):'—';
   document.getElementById('st-loss').textContent=s.pktLoss!=null?s.pktLoss:'—';
+  document.getElementById('st-drop').textContent=s.pktDrop!=null?s.pktDrop:'—';
   document.getElementById('st-frame').textContent=s.frame!=null?s.frame:'—';
   document.getElementById('st-uptime').textContent=d.uptime||'—';
   document.getElementById('st-log').textContent=d.lastLog||'';

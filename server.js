@@ -338,10 +338,26 @@ const server = http.createServer(async(req,res)=>{
     const id=uuid(); const hlsDir=path.join(RECORDINGS_DIR,id); fs.mkdirSync(hlsDir,{recursive:true});
     // Register recording with name
     db.prepare('INSERT INTO recordings (id,name,project_id) VALUES (?,?,?)').run(id,name||'',projectId);
-    const proc=spawn('ffmpeg',['-y','-fflags','+discardcorrupt+genpts','-analyzeduration','10000000','-probesize','10000000','-i',srtUrl,'-sn','-c:v','libx264','-preset','ultrafast','-b:v',`${proj.video_bitrate||4000}k`,'-c:a','aac','-b:a',`${proj.audio_bitrate||128}k`,'-f','hls','-hls_time','2','-hls_list_size','0','-hls_flags','append_list','-hls_segment_filename',path.join(hlsDir,'seg%05d.ts'),path.join(hlsDir,'stream.m3u8')],{stdio:['ignore','pipe','pipe']});
+    const proc=spawn('ffmpeg',['-y','-loglevel','verbose','-fflags','+discardcorrupt+genpts','-analyzeduration','10000000','-probesize','10000000','-i',srtUrl,'-sn','-c:v','libx264','-preset','ultrafast','-b:v',`${proj.video_bitrate||4000}k`,'-c:a','aac','-b:a',`${proj.audio_bitrate||128}k`,'-f','hls','-hls_time','2','-hls_list_size','0','-hls_flags','append_list','-hls_segment_filename',path.join(hlsDir,'seg%05d.ts'),path.join(hlsDir,'stream.m3u8')],{stdio:['ignore','pipe','pipe']});
     const mp4File=path.join(RECORDINGS_DIR,`${id}.mp4`);
     sessions.set(id,{proc,hlsDir,mp4File,startTime:Date.now(),projectId,status:'recording',hlsReady:false,lastTimecode:null});
-    proc.stderr.on('data',d=>{ const t=d.toString(),s=sessions.get(id); if(!s)return; s.lastLog=t.trim().split('\n').pop(); const tc=t.match(/timecode[=: ]+(\d{2}:\d{2}:\d{2}[;:]\d{2})/i); if(tc)s.lastTimecode=tc[1]; const fm=t.match(/frame=\s*(\d+).*fps=\s*([\d.]+).*bitrate=\s*([\d.]+)kbits\/s.*speed=\s*([\d.]+)x/s); if(fm)s.stats={frame:parseInt(fm[1]),fps:parseFloat(fm[2]),bitrate:parseFloat(fm[3]),speed:parseFloat(fm[4]),ts:Date.now()}; const rm=t.match(/RTT\s*[=:]\s*([\d.]+)/i); if(rm&&s.stats)s.stats.rtt=parseFloat(rm[1]); const lm=t.match(/pktRcvLoss[=:]\s*(\d+)/i); if(lm&&s.stats)s.stats.pktLoss=parseInt(lm[1]); });
+    proc.stderr.on('data',d=>{
+      const t=d.toString(),s=sessions.get(id); if(!s)return;
+      // lastLog: skip noisy SRT/HLS verbose lines, keep progress + meaningful messages
+      const logLines=t.split('\n').filter(l=>{ const lt=l.trim(); return lt&&!lt.match(/^\[srt\s|^\[hls\s|^msTimeStamp=|^pktSent=|^pktRecv=|^byteAvail/i); });
+      if(logLines.length) s.lastLog=logLines[logLines.length-1].trim();
+      // Timecode
+      const tc=t.match(/timecode[=: ]+(\d{2}:\d{2}:\d{2}[;:]\d{2})/i); if(tc)s.lastTimecode=tc[1];
+      // FFmpeg progress line — parse each field independently (bitrate may be N/A early on)
+      const frm=t.match(/frame=\s*(\d+)/); if(frm){if(!s.stats)s.stats={ts:Date.now()};s.stats.frame=parseInt(frm[1]);s.stats.ts=Date.now();}
+      const fp=t.match(/fps=\s*([\d.]+)/); if(fp){if(!s.stats)s.stats={ts:Date.now()};s.stats.fps=parseFloat(fp[1]);}
+      const br=t.match(/bitrate=\s*([\d.]+)kbits\/s/); if(br){if(!s.stats)s.stats={ts:Date.now()};s.stats.bitrate=parseFloat(br[1]);}
+      // SRT verbose stats: msRTT, mbpsBandwidth, pktRcvLoss, pktRcvDrop
+      const rtt=t.match(/msRTT=\s*([\d.]+)/i); if(rtt){if(!s.stats)s.stats={ts:Date.now()};s.stats.rtt=parseFloat(rtt[1]);}
+      const bw=t.match(/mbpsBandwidth=\s*([\d.]+)/i); if(bw){if(!s.stats)s.stats={ts:Date.now()};s.stats.bandwidth=parseFloat(bw[1]);}
+      const lm=t.match(/pktRcvLoss=\s*(\d+)/i); if(lm){if(!s.stats)s.stats={ts:Date.now()};s.stats.pktLoss=parseInt(lm[1]);}
+      const dm=t.match(/pktRcvDrop=\s*(\d+)/i); if(dm){if(!s.stats)s.stats={ts:Date.now()};s.stats.pktDrop=parseInt(dm[1]);}
+    });
     proc.on('error',err=>{ const s=sessions.get(id); if(s){s.status='error';s.error=err.message;} });
     proc.on('close',async code=>{ const s=sessions.get(id); if(!s)return; if(s.status==='stopping'){s.status='finalising'; try{await finaliseMp4(hlsDir,mp4File);s.status='ready';}catch(e){s.status='error';s.error=e.message;} }else{s.status=code===0?'ready':'error';} s.proc=null; });
     try{ await waitHls(hlsDir,30000); const s=sessions.get(id); if(s)s.hlsReady=true; return jres(res,200,{id,status:'recording',hlsUrl:`/hls/${id}/stream.m3u8`,hlsReady:true}); }
