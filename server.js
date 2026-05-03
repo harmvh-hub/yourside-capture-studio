@@ -6,13 +6,15 @@
  */
 
 const http   = require('http');
+const net    = require('net');
+const tls    = require('tls');
 const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION_NUM = '2.13';
+const VERSION_NUM = '2.14';
 const GODS = ['Zeus','Hera','Athena','Apollo','Artemis','Ares','Aphrodite','Hermes','Hephaestus','Poseidon','Demeter','Dionysus','Hades','Persephone','Hestia','Eos','Helios','Selene','Nike','Tyche','Nemesis','Iris','Eris','Morpheus','Hypnos','Eros','Pan','Proteus','Triton','Nyx'];
 const VERSION = `${VERSION_NUM} (${GODS[Math.floor(Math.random()*GODS.length)]})`;
 const PORT           = process.env.PORT           || 3000;
@@ -59,12 +61,20 @@ db.exec(`
   INSERT OR IGNORE INTO settings VALUES ('dropbox_token','');
   INSERT OR IGNORE INTO settings VALUES ('fb_token','');
   INSERT OR IGNORE INTO settings VALUES ('fb_page_id','');
+  INSERT OR IGNORE INTO settings VALUES ('smtp_host','');
+  INSERT OR IGNORE INTO settings VALUES ('smtp_port','587');
+  INSERT OR IGNORE INTO settings VALUES ('smtp_user','');
+  INSERT OR IGNORE INTO settings VALUES ('smtp_pass','');
+  INSERT OR IGNORE INTO settings VALUES ('smtp_from','');
 `);
 
 // Migrate: add columns if upgrading
 const pcols = db.prepare("PRAGMA table_info(projects)").all().map(c=>c.name);
 const pnew  = {srt_url:"TEXT DEFAULT ''",srt_mode:"TEXT DEFAULT 'caller'",srt_latency:"TEXT DEFAULT '200'",srt_passphrase:"TEXT DEFAULT ''",srt_streamid:"TEXT DEFAULT ''",video_bitrate:"TEXT DEFAULT '4000'",audio_bitrate:"TEXT DEFAULT '128'"};
 for(const [c,d] of Object.entries(pnew)) if(!pcols.includes(c)) db.exec(`ALTER TABLE projects ADD COLUMN ${c} ${d}`);
+const ucols = db.prepare("PRAGMA table_info(users)").all().map(c=>c.name);
+const unew  = {email:"TEXT DEFAULT ''", totp_secret:"TEXT DEFAULT ''", mfa_enabled:"INTEGER DEFAULT 0"};
+for(const [c,d] of Object.entries(unew)) if(!ucols.includes(c)) db.exec(`ALTER TABLE users ADD COLUMN ${c} ${d}`);
 
 if(db.prepare('SELECT COUNT(*) as c FROM users').get().c===0){
   db.prepare("INSERT INTO users (id,username,password_hash,role) VALUES (?,?,?,'admin')").run(uuid(),'admin',hashPw('admin'));
@@ -84,6 +94,54 @@ function getCookies(req){ return Object.fromEntries((req.headers.cookie||'').spl
 function getUser(req){ const t=getCookies(req).session||(req.headers.authorization||'').replace('Bearer ','').trim(); if(!t)return null; return db.prepare("SELECT s.user_id,s.token,u.username,u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires_at>datetime('now')").get(t)||null; }
 function getSetting(k){ const r=db.prepare('SELECT value FROM settings WHERE key=?').get(k); return r?r.value:''; }
 function buildSrtUrl(p){ if(!p.srt_url)return''; const ps=[`mode=${p.srt_mode||'caller'}`,`latency=${p.srt_latency||200}`]; if(p.srt_passphrase)ps.push(`passphrase=${encodeURIComponent(p.srt_passphrase)}`); if(p.srt_streamid)ps.push(`streamid=${encodeURIComponent(p.srt_streamid)}`); return p.srt_url+(p.srt_url.includes('?')?'&':'?')+ps.join('&'); }
+
+// ── TOTP / MFA ────────────────────────────────────────────────────────────────
+const B32ALPHA='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32Encode(buf){ let bits=0,val=0,out=''; for(const b of buf){val=(val<<8)|b;bits+=8;while(bits>=5){out+=B32ALPHA[(val>>>(bits-5))&0x1f];bits-=5;}} if(bits>0)out+=B32ALPHA[(val<<(5-bits))&0x1f]; while(out.length%8)out+='='; return out; }
+function base32Decode(s){ s=s.toUpperCase().replace(/=+$/,''); let bits=0,val=0; const out=[]; for(const c of s){const i=B32ALPHA.indexOf(c);if(i<0)continue;val=(val<<5)|i;bits+=5;if(bits>=8){out.push((val>>>(bits-8))&0xff);bits-=8;}} return Buffer.from(out); }
+function totpCode(secret,w=0){ const key=base32Decode(secret); const ctr=BigInt(Math.floor(Date.now()/1000/30))+BigInt(w); const buf=Buffer.alloc(8); buf.writeBigUInt64BE(ctr); const h=crypto.createHmac('sha1',key).update(buf).digest(); const off=h[h.length-1]&0xf; const code=((h[off]&0x7f)<<24|(h[off+1]&0xff)<<16|(h[off+2]&0xff)<<8|(h[off+3]&0xff))%1000000; return String(code).padStart(6,'0'); }
+function verifyTotp(secret,code){ return[-1,0,1].some(w=>totpCode(secret,w)===String(code).trim()); }
+function genTotpSecret(){ return base32Encode(crypto.randomBytes(20)).replace(/=+$/,''); }
+
+// ── SMTP ──────────────────────────────────────────────────────────────────────
+function sendMail(to,subject,body){ return new Promise(ok=>{
+  const host=getSetting('smtp_host'); if(!host||!to)return ok();
+  const port=parseInt(getSetting('smtp_port')||'587');
+  const user=getSetting('smtp_user'),pass=getSetting('smtp_pass'),from=getSetting('smtp_from')||user;
+  const b64=s=>Buffer.from(String(s)).toString('base64');
+  const msg=`From: ${from}\r\nTo: ${to}\r\nSubject: ${subject}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`;
+  let sock, buf='', step=0, upgraded=false;
+  const cmd=s=>{try{sock.write(s+'\r\n');}catch{}};
+  const handle=line=>{
+    if(/^\d{3}-/.test(line))return; // multi-line continuation
+    const code=parseInt(line);
+    if(step===0&&code===220){cmd('EHLO localhost');step=1;}
+    else if(step===1&&code===250){
+      if(port===587&&!upgraded){cmd('STARTTLS');step=10;}
+      else{cmd('AUTH LOGIN');step=2;}
+    }
+    else if(step===10&&code===220){
+      upgraded=true;
+      const plain=sock;
+      sock=tls.connect({socket:plain,host},()=>{cmd('EHLO localhost');step=1;});
+      sock.on('data',d=>{buf+=d.toString();buf.split('\r\n').filter(Boolean).forEach(l=>{handle(l);});buf='';});
+      sock.on('error',()=>ok());
+    }
+    else if(step===2&&code===334){cmd(b64(user));step=3;}
+    else if(step===3&&code===334){cmd(b64(pass));step=4;}
+    else if(step===4&&code===235){cmd(`MAIL FROM:<${from}>`);step=5;}
+    else if(step===5&&code===250){cmd(`RCPT TO:<${to}>`);step=6;}
+    else if(step===6&&code===250){cmd('DATA');step=7;}
+    else if(step===7&&code===354){cmd(msg+'\r\n.');step=8;}
+    else if(step===8&&code===250){cmd('QUIT');step=9;sock.end();ok();}
+    else if(code>=400){sock.end();ok();}
+  };
+  const onData=d=>{buf+=d.toString();const lines=buf.split('\r\n');buf=lines.pop();lines.filter(Boolean).forEach(handle);};
+  try{
+    if(port===465){sock=tls.connect(port,host,{},()=>{});} else{sock=net.connect(port,host);}
+    sock.on('data',onData); sock.on('error',()=>ok()); sock.setTimeout(10000,()=>{try{sock.end();}catch{}ok();});
+  }catch{ok();}
+});}
 
 function probeDuration(fp){ return new Promise(ok=>{ execFile('ffprobe',['-v','quiet','-print_format','json','-show_format',fp],(err,out)=>{ if(err)return ok(null); try{ok(parseFloat(JSON.parse(out).format.duration)||null);}catch{ok(null);} }); }); }
 
@@ -189,9 +247,13 @@ const server = http.createServer(async(req,res)=>{
 
   // Auth
   if(req.method==='POST'&&p==='/api/auth/login'){
-    const{username,password}=await parseBody(req);
+    const{username,password,totpCode}=await parseBody(req);
     const user=db.prepare('SELECT * FROM users WHERE username=? AND password_hash=?').get(username,hashPw(password||''));
     if(!user)return jres(res,401,{error:'Invalid credentials'});
+    if(user.mfa_enabled){
+      if(!totpCode)return jres(res,200,{mfaRequired:true});
+      if(!verifyTotp(user.totp_secret,totpCode))return jres(res,401,{error:'Invalid MFA code'});
+    }
     const token=crypto.randomBytes(32).toString('hex');
     db.prepare("INSERT INTO sessions (token,user_id,expires_at) VALUES (?,?,datetime('now','+30 days'))").run(token,user.id);
     res.writeHead(200,{'Content-Type':'application/json','Set-Cookie':`session=${token}; HttpOnly; Path=/; Max-Age=2592000; SameSite=Strict`,'Access-Control-Allow-Origin':'*'});
@@ -220,8 +282,8 @@ const server = http.createServer(async(req,res)=>{
   const au=getUser(req); if(!au)return jres(res,401,{error:'Unauthorised'});
 
   // Users
-  if(req.method==='GET'&&p==='/api/users'){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); return jres(res,200,{users:db.prepare('SELECT id,username,role,created_at FROM users').all()}); }
-  if(req.method==='POST'&&p==='/api/users'){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); const{username,password,role}=await parseBody(req); if(!username||!password)return jres(res,400,{error:'Missing fields'}); try{ const id=uuid(); db.prepare("INSERT INTO users (id,username,password_hash,role) VALUES (?,?,?,?)").run(id,username,hashPw(password),role||'editor'); return jres(res,200,{id,username,role:role||'editor'}); }catch{ return jres(res,400,{error:'Username exists'}); } }
+  if(req.method==='GET'&&p==='/api/users'){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); return jres(res,200,{users:db.prepare('SELECT id,username,role,email,mfa_enabled,created_at FROM users').all()}); }
+  if(req.method==='POST'&&p==='/api/users'){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); const{username,password,role,email}=await parseBody(req); if(!username||!password)return jres(res,400,{error:'Missing fields'}); try{ const id=uuid(); db.prepare("INSERT INTO users (id,username,password_hash,role,email) VALUES (?,?,?,?,?)").run(id,username,hashPw(password),role||'editor',email||''); if(email){ sendMail(email,`Your YourSide Capture Studio account`,`Hi ${username},\n\nYour account has been created.\n\nUsername: ${username}\nPassword: ${password}\nURL: (ask your administrator)\n\nPlease change your password after first login.\n`).catch(()=>{}); } return jres(res,200,{id,username,role:role||'editor'}); }catch{ return jres(res,400,{error:'Username exists'}); } }
   if(req.method==='PUT'&&p.startsWith('/api/users/')){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); const id=p.replace('/api/users/',''); const{username,password,role}=await parseBody(req); if(password){ if(password.length<4)return jres(res,400,{error:'Min 4 chars'}); if(username){db.prepare('UPDATE users SET username=?,password_hash=?,role=? WHERE id=?').run(username,hashPw(password),role,id);}else{db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hashPw(password),id);} }else if(username){db.prepare('UPDATE users SET username=?,role=? WHERE id=?').run(username,role,id);} return jres(res,200,{ok:true}); }
   if(req.method==='DELETE'&&p.startsWith('/api/users/')){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); const id=p.replace('/api/users/',''); db.prepare('DELETE FROM users WHERE id=?').run(id); db.prepare('DELETE FROM sessions WHERE user_id=?').run(id); return jres(res,200,{deleted:true}); }
 
@@ -279,7 +341,7 @@ const server = http.createServer(async(req,res)=>{
     const proc=spawn('ffmpeg',['-y','-fflags','+discardcorrupt+genpts','-analyzeduration','10000000','-probesize','10000000','-i',srtUrl,'-sn','-c:v','libx264','-preset','ultrafast','-b:v',`${proj.video_bitrate||4000}k`,'-c:a','aac','-b:a',`${proj.audio_bitrate||128}k`,'-f','hls','-hls_time','2','-hls_list_size','0','-hls_flags','append_list','-hls_segment_filename',path.join(hlsDir,'seg%05d.ts'),path.join(hlsDir,'stream.m3u8')],{stdio:['ignore','pipe','pipe']});
     const mp4File=path.join(RECORDINGS_DIR,`${id}.mp4`);
     sessions.set(id,{proc,hlsDir,mp4File,startTime:Date.now(),projectId,status:'recording',hlsReady:false,lastTimecode:null});
-    proc.stderr.on('data',d=>{ const t=d.toString(),s=sessions.get(id); if(!s)return; s.lastLog=t.trim().split('\n').pop(); const tc=t.match(/timecode[=: ]+(\d{2}:\d{2}:\d{2}[;:]\d{2})/i); if(tc)s.lastTimecode=tc[1]; });
+    proc.stderr.on('data',d=>{ const t=d.toString(),s=sessions.get(id); if(!s)return; s.lastLog=t.trim().split('\n').pop(); const tc=t.match(/timecode[=: ]+(\d{2}:\d{2}:\d{2}[;:]\d{2})/i); if(tc)s.lastTimecode=tc[1]; const fm=t.match(/frame=\s*(\d+).*fps=\s*([\d.]+).*bitrate=\s*([\d.]+)kbits\/s.*speed=\s*([\d.]+)x/s); if(fm)s.stats={frame:parseInt(fm[1]),fps:parseFloat(fm[2]),bitrate:parseFloat(fm[3]),speed:parseFloat(fm[4]),ts:Date.now()}; const rm=t.match(/RTT\s*[=:]\s*([\d.]+)/i); if(rm&&s.stats)s.stats.rtt=parseFloat(rm[1]); const lm=t.match(/pktRcvLoss[=:]\s*(\d+)/i); if(lm&&s.stats)s.stats.pktLoss=parseInt(lm[1]); });
     proc.on('error',err=>{ const s=sessions.get(id); if(s){s.status='error';s.error=err.message;} });
     proc.on('close',async code=>{ const s=sessions.get(id); if(!s)return; if(s.status==='stopping'){s.status='finalising'; try{await finaliseMp4(hlsDir,mp4File);s.status='ready';}catch(e){s.status='error';s.error=e.message;} }else{s.status=code===0?'ready':'error';} s.proc=null; });
     try{ await waitHls(hlsDir,30000); const s=sessions.get(id); if(s)s.hlsReady=true; return jres(res,200,{id,status:'recording',hlsUrl:`/hls/${id}/stream.m3u8`,hlsReady:true}); }
@@ -294,7 +356,7 @@ const server = http.createServer(async(req,res)=>{
 
   // Export
   if(req.method==='POST'&&p==='/api/export'){
-    const{id,inPoint,outPoint,clipId,aspectRatio}=await parseBody(req);
+    const{id,inPoint,outPoint,clipId,aspectRatio,cropX}=await parseBody(req);
     if(!id||inPoint==null||outPoint==null)return jres(res,400,{error:'Missing fields'});
     if(inPoint>=outPoint)return jres(res,400,{error:'inPoint must be < outPoint'});
     const s=sessions.get(id); const duration=outPoint-inPoint;
@@ -316,7 +378,7 @@ const server = http.createServer(async(req,res)=>{
     let vf = '';
     if(aspectRatio==='9:16'){
       const cw = even(Math.floor(sh * 9/16));
-      const cx = even(Math.floor((sw - cw) / 2));
+      const cx = even(Math.floor((sw - cw) * Math.max(0,Math.min(1,cropX??0.5))));
       vf = `crop=${cw}:${sh}:${cx}:0,scale=1080:1920`;
     } else if(aspectRatio==='1:1'){
       const sq = even(Math.min(sw,sh));
@@ -444,7 +506,58 @@ const server = http.createServer(async(req,res)=>{
   }
 
   // Export status
-  if(req.method==='GET'&&p.startsWith('/api/export/status/')){ const exportId=p.replace('/api/export/status/',''); const s=sessions.get(`export_${exportId}`); if(!s)return jres(res,404,{error:'Not found'}); return jres(res,200,{status:s.status,progress:s.progress,downloadUrl:s.status==='done'?`/exports/clip_${exportId}.mp4`:null}); }
+  if(req.method==='GET'&&p.startsWith('/api/export/status/')){ const exportId=p.replace('/api/export/status/',''); const s=sessions.get(`export_${exportId}`); if(!s)return jres(res,404,{error:'Not found'}); return jres(res,200,{status:s.status,progress:s.progress,downloadUrl:s.status==='done'?`/exports/clip_${exportId}.mp4`:null,clipName:s.clipName||null}); }
+
+  // Batch export
+  if(req.method==='POST'&&p==='/api/export/batch'){
+    const{clips,aspectRatio}=await parseBody(req);
+    if(!Array.isArray(clips)||!clips.length)return jres(res,400,{error:'clips array required'});
+    const jobs=clips.map(c=>({...c,exportId:uuid(),ar:aspectRatio||'16:9'}));
+    for(const j of jobs){
+      const s={status:'queued',progress:0,file:path.join(EXPORTS_DIR,`clip_${j.exportId}.mp4`),clipId:j.clipId||null,clipName:j.clipName||'',proc:null};
+      sessions.set(`export_${j.exportId}`,s);
+    }
+    // Process sequentially in background
+    (async()=>{
+      for(const j of jobs){
+        const sess=sessions.get(`export_${j.exportId}`); if(!sess)continue;
+        sess.status='exporting'; sess.progress=2;
+        const recId=j.recId, inPoint=j.inPoint, outPoint=j.outPoint, ar=j.ar, cropX=j.cropX||0.5;
+        const duration=outPoint-inPoint;
+        const inputFile=path.join(RECORDINGS_DIR,`${recId}.mp4`);
+        if(!fs.existsSync(inputFile)){sess.status='error';continue;}
+        const exportFile=sess.file, tmpFile=path.join(EXPORTS_DIR,`tmp_${j.exportId}.mp4`);
+        const even=n=>Math.floor(n/2)*2;
+        const info=await probeVideo(inputFile)||{width:1920,height:1080};
+        const sw=info.width, sh=info.height;
+        let vf='';
+        if(ar==='9:16'){const cw=even(Math.floor(sh*9/16));const cx=even(Math.floor((sw-cw)*cropX));vf=`crop=${cw}:${sh}:${cx}:0,scale=1080:1920`;}
+        else if(ar==='1:1'){const sq=even(Math.min(sw,sh));const cx=even(Math.floor((sw-sq)/2));const cy=even(Math.floor((sh-sq)/2));vf=`crop=${sq}:${sq}:${cx}:${cy},scale=1080:1080`;}
+        else if(ar==='16:9'){vf=`scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black`;}
+        const vFilter=vf?`${vf},setpts=PTS-STARTPTS`:'setpts=PTS-STARTPTS';
+        const encArgs=['-c:v','libx264','-preset','fast','-crf','20','-c:a','aac','-b:a','192k','-ac','2','-ar','48000','-movflags','+faststart'];
+        const spawnP=args=>new Promise((ok,fail)=>{const pr=spawn('ffmpeg',args);sess.proc=pr;pr.stderr.on('data',d=>{const m=d.toString().match(/time=(\d+):(\d+):(\d+\.\d+)/);if(m){const s2=parseInt(m[1])*3600+parseInt(m[2])*60+parseFloat(m[3]);sess.progress=Math.min(98,Math.round((s2/duration)*100));}});pr.on('close',c=>c===0?ok():fail(new Error('ffmpeg exit '+c)));pr.on('error',fail);});
+        try{
+          await spawnP(['-y','-ss',String(inPoint),'-i',inputFile,'-t',String(duration),'-c','copy','-avoid_negative_ts','make_zero',tmpFile]);
+          sess.progress=50;
+          await spawnP(['-y','-i',tmpFile,'-vf',vFilter,'-af','aresample=async=1:first_pts=0',...encArgs,exportFile]);
+          try{fs.unlinkSync(tmpFile);}catch{}
+          sess.status='done'; sess.progress=100;
+          if(j.clipId) db.prepare("UPDATE clips SET export_file=? WHERE id=?").run(`/exports/clip_${j.exportId}.mp4`,j.clipId);
+        }catch(e){try{fs.unlinkSync(tmpFile);}catch{}sess.status='error';sess.progress=100;}
+        sess.proc=null;
+      }
+    })();
+    return jres(res,200,{jobs:jobs.map(j=>({exportId:j.exportId,clipId:j.clipId,clipName:j.clipName}))});
+  }
+
+  // SRT stats
+  if(req.method==='GET'&&p.startsWith('/api/srt-stats/')){ const id=p.replace('/api/srt-stats/',''); const s=sessions.get(id); if(!s||s.status!=='recording')return jres(res,200,{live:false}); return jres(res,200,{live:true,stats:s.stats||null,uptime:Math.round((Date.now()-s.startTime)/1000),lastLog:s.lastLog||''}); }
+
+  // MFA setup
+  if(req.method==='POST'&&p==='/api/mfa/setup'){ const{userId}=await parseBody(req); if(au.role!=='admin'&&au.user_id!==userId)return jres(res,403,{error:'Forbidden'}); const secret=genTotpSecret(); db.prepare('UPDATE users SET totp_secret=? WHERE id=?').run(secret,userId); const u=db.prepare('SELECT username FROM users WHERE id=?').get(userId); const issuer='YourSide+Capture'; const otpUrl=`otpauth://totp/${issuer}:${encodeURIComponent(u.username)}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`; return jres(res,200,{secret,otpUrl}); }
+  if(req.method==='POST'&&p==='/api/mfa/enable'){ const{userId,code}=await parseBody(req); if(au.role!=='admin'&&au.user_id!==userId)return jres(res,403,{error:'Forbidden'}); const u=db.prepare('SELECT totp_secret FROM users WHERE id=?').get(userId); if(!u||!u.totp_secret)return jres(res,400,{error:'Setup MFA first'}); if(!verifyTotp(u.totp_secret,code))return jres(res,400,{error:'Invalid code'}); db.prepare('UPDATE users SET mfa_enabled=1 WHERE id=?').run(userId); return jres(res,200,{ok:true}); }
+  if(req.method==='POST'&&p==='/api/mfa/disable'){ const{userId}=await parseBody(req); if(au.role!=='admin'&&au.user_id!==userId)return jres(res,403,{error:'Forbidden'}); db.prepare('UPDATE users SET mfa_enabled=0,totp_secret=\'\' WHERE id=?').run(userId); return jres(res,200,{ok:true}); }
 
   // Delete recording
   if(req.method==='DELETE'&&p.startsWith('/api/recordings/')){ const id=p.replace('/api/recordings/',''); const s=sessions.get(id); if(s&&s.status==='recording')return jres(res,400,{error:'Stop recording first'}); const used=db.prepare('SELECT COUNT(*) as c FROM clips WHERE recording_id=?').get(id); if(used.c>0)return jres(res,400,{error:`Used by ${used.c} clip(s). Remove clips first.`}); const mp4=path.join(RECORDINGS_DIR,`${id}.mp4`),hd=path.join(RECORDINGS_DIR,id); if(fs.existsSync(mp4))fs.unlinkSync(mp4); if(fs.existsSync(hd))fs.rmSync(hd,{recursive:true,force:true}); db.prepare('DELETE FROM recordings WHERE id=?').run(id); sessions.delete(id); return jres(res,200,{deleted:true}); }
