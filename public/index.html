@@ -1274,7 +1274,7 @@ async function selRec(id,live){
     document.getElementById('tcdis').textContent=smtc(0);
     document.getElementById('tcov').textContent=smtc(0);
     const d=await api('GET','/api/probe/'+id);
-    dur=d.duration||0; inPt=0; outPt=dur; zoom=1; basePPS=null;
+    dur=d.duration||0; inPt=0; outPt=0; outPtAuto=false; zoom=1; basePPS=null;
     if(d.created) tcRecStart=d.created;
     const initTc=livPausedTC();
     document.getElementById('tcdis').textContent=initTc;
@@ -1369,13 +1369,14 @@ function scrollToLiveEnd(){
 
 function updateMk(){
   if(!dur)return;
-  const inPx=t2px(inPt), outPx=t2px(outPt);
-  mkIn.style.left=inPx+'px'; mkOut.style.left=outPx+'px';
-  creg.style.left=inPx+'px'; creg.style.width=(outPx-inPx)+'px';
+  const sel=outPt>inPt;
+  mkIn.style.display=sel?'':'none'; mkOut.style.display=sel?'':'none'; creg.style.display=sel?'':'none';
+  if(sel){ const inPx=t2px(inPt),outPx=t2px(outPt); mkIn.style.left=inPx+'px'; mkOut.style.left=outPx+'px'; creg.style.left=inPx+'px'; creg.style.width=(outPx-inPx)+'px'; }
 }
 function updPt(){
-  document.getElementById('inD').textContent=hms(inPt);
-  document.getElementById('outD').textContent=hms(outPt);
+  const sel=outPt>inPt;
+  document.getElementById('inD').textContent=sel?hms(inPt):'—';
+  document.getElementById('outD').textContent=sel?hms(outPt):'—';
   const l=outPt-inPt; document.getElementById('cldur').textContent=l>0?`Clip: ${hms(l)}`:'';
 }
 
