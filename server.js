@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION_NUM = '2.16.5';
+const VERSION_NUM = '2.16.6';
 const GODS = ['Zeus','Hera','Athena','Apollo','Artemis','Ares','Aphrodite','Hermes','Hephaestus','Poseidon','Demeter','Dionysus','Hades','Persephone','Hestia','Eos','Helios','Selene','Nike','Tyche','Nemesis','Iris','Eris','Morpheus','Hypnos','Eros','Pan','Proteus','Triton','Nyx'];
 const VERSION = `${VERSION_NUM} (${GODS[Math.floor(Math.random()*GODS.length)]})`;
 const PORT           = process.env.PORT           || 3000;
@@ -77,7 +77,7 @@ const pcols = db.prepare("PRAGMA table_info(projects)").all().map(c=>c.name);
 const pnew  = {srt_url:"TEXT DEFAULT ''",srt_mode:"TEXT DEFAULT 'caller'",srt_latency:"TEXT DEFAULT '200'",srt_passphrase:"TEXT DEFAULT ''",srt_streamid:"TEXT DEFAULT ''",video_bitrate:"TEXT DEFAULT '4000'",audio_bitrate:"TEXT DEFAULT '128'"};
 for(const [c,d] of Object.entries(pnew)) if(!pcols.includes(c)) db.exec(`ALTER TABLE projects ADD COLUMN ${c} ${d}`);
 const ucols = db.prepare("PRAGMA table_info(users)").all().map(c=>c.name);
-const unew  = {email:"TEXT DEFAULT ''", totp_secret:"TEXT DEFAULT ''", mfa_enabled:"INTEGER DEFAULT 0"};
+const unew  = {email:"TEXT DEFAULT ''", totp_secret:"TEXT DEFAULT ''", mfa_enabled:"INTEGER DEFAULT 0", mfa_required:"INTEGER DEFAULT 0"};
 for(const [c,d] of Object.entries(unew)) if(!ucols.includes(c)) db.exec(`ALTER TABLE users ADD COLUMN ${c} ${d}`);
 
 // Migrate: seed project_members from existing project creators
@@ -255,12 +255,24 @@ const server = http.createServer(async(req,res)=>{
 
   // Auth
   if(req.method==='POST'&&p==='/api/auth/login'){
-    const{username,password,totpCode}=await parseBody(req);
+    const{username,password,totpCode,mfaEnroll}=await parseBody(req);
     const user=db.prepare('SELECT * FROM users WHERE username=? AND password_hash=?').get(username,hashPw(password||''));
     if(!user)return jres(res,401,{error:'Invalid credentials'});
     if(user.mfa_enabled){
       if(!totpCode)return jres(res,200,{mfaRequired:true});
       if(!verifyTotp(user.totp_secret,totpCode))return jres(res,401,{error:'Invalid MFA code'});
+    } else if(user.mfa_required){
+      if(!mfaEnroll){
+        let secret=user.totp_secret;
+        if(!secret){secret=genTotpSecret();db.prepare('UPDATE users SET totp_secret=? WHERE id=?').run(secret,user.id);}
+        const issuer='YourSide+Capture';
+        const otpUrl=`otpauth://totp/${issuer}:${encodeURIComponent(user.username)}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
+        return jres(res,200,{mfaEnrollRequired:true,secret,otpUrl});
+      }
+      if(!totpCode)return jres(res,400,{error:'Code required'});
+      const fresh=db.prepare('SELECT totp_secret FROM users WHERE id=?').get(user.id);
+      if(!verifyTotp(fresh.totp_secret,totpCode))return jres(res,401,{error:'Invalid code — check your app and try again'});
+      db.prepare('UPDATE users SET mfa_enabled=1 WHERE id=?').run(user.id);
     }
     const token=crypto.randomBytes(32).toString('hex');
     db.prepare("INSERT INTO sessions (token,user_id,expires_at) VALUES (?,?,datetime('now','+30 days'))").run(token,user.id);
@@ -290,7 +302,7 @@ const server = http.createServer(async(req,res)=>{
   const au=getUser(req); if(!au)return jres(res,401,{error:'Unauthorised'});
 
   // Users
-  if(req.method==='GET'&&p==='/api/users'){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); return jres(res,200,{users:db.prepare('SELECT id,username,role,email,mfa_enabled,created_at FROM users').all()}); }
+  if(req.method==='GET'&&p==='/api/users'){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); return jres(res,200,{users:db.prepare('SELECT id,username,role,email,mfa_enabled,mfa_required,created_at FROM users').all()}); }
   if(req.method==='POST'&&p==='/api/users'){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); const{username,password,role,email}=await parseBody(req); if(!username||!password)return jres(res,400,{error:'Missing fields'}); try{ const id=uuid(); db.prepare("INSERT INTO users (id,username,password_hash,role,email) VALUES (?,?,?,?,?)").run(id,username,hashPw(password),role||'editor',email||''); if(email){ sendMail(email,`Your YourSide Capture Studio account`,`Hi ${username},\n\nYour account has been created.\n\nUsername: ${username}\nPassword: ${password}\nURL: (ask your administrator)\n\nPlease change your password after first login.\n`).catch(()=>{}); } return jres(res,200,{id,username,role:role||'editor'}); }catch{ return jres(res,400,{error:'Username exists'}); } }
   if(req.method==='PUT'&&p.startsWith('/api/users/')){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); const id=p.replace('/api/users/',''); const{username,password,role}=await parseBody(req); if(password){ if(password.length<4)return jres(res,400,{error:'Min 4 chars'}); if(username){db.prepare('UPDATE users SET username=?,password_hash=?,role=? WHERE id=?').run(username,hashPw(password),role,id);}else{db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hashPw(password),id);} }else if(username){db.prepare('UPDATE users SET username=?,role=? WHERE id=?').run(username,role,id);} return jres(res,200,{ok:true}); }
   if(req.method==='DELETE'&&p.startsWith('/api/users/')){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); const id=p.replace('/api/users/',''); db.prepare('DELETE FROM users WHERE id=?').run(id); db.prepare('DELETE FROM sessions WHERE user_id=?').run(id); return jres(res,200,{deleted:true}); }
@@ -652,10 +664,20 @@ const server = http.createServer(async(req,res)=>{
   // SRT stats
   if(req.method==='GET'&&p.startsWith('/api/srt-stats/')){ const id=p.replace('/api/srt-stats/',''); const s=sessions.get(id); if(!s||s.status!=='recording')return jres(res,200,{live:false}); return jres(res,200,{live:true,stats:s.stats||null,uptime:Math.round((Date.now()-s.startTime)/1000),lastLog:s.lastLog||''}); }
 
-  // MFA setup
-  if(req.method==='POST'&&p==='/api/mfa/setup'){ const{userId}=await parseBody(req); if(au.role!=='admin'&&au.user_id!==userId)return jres(res,403,{error:'Forbidden'}); const secret=genTotpSecret(); db.prepare('UPDATE users SET totp_secret=? WHERE id=?').run(secret,userId); const u=db.prepare('SELECT username FROM users WHERE id=?').get(userId); const issuer='YourSide+Capture'; const otpUrl=`otpauth://totp/${issuer}:${encodeURIComponent(u.username)}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`; return jres(res,200,{secret,otpUrl}); }
-  if(req.method==='POST'&&p==='/api/mfa/enable'){ const{userId,code}=await parseBody(req); if(au.role!=='admin'&&au.user_id!==userId)return jres(res,403,{error:'Forbidden'}); const u=db.prepare('SELECT totp_secret FROM users WHERE id=?').get(userId); if(!u||!u.totp_secret)return jres(res,400,{error:'Setup MFA first'}); if(!verifyTotp(u.totp_secret,code))return jres(res,400,{error:'Invalid code'}); db.prepare('UPDATE users SET mfa_enabled=1 WHERE id=?').run(userId); return jres(res,200,{ok:true}); }
-  if(req.method==='POST'&&p==='/api/mfa/disable'){ const{userId}=await parseBody(req); if(au.role!=='admin'&&au.user_id!==userId)return jres(res,403,{error:'Forbidden'}); db.prepare('UPDATE users SET mfa_enabled=0,totp_secret=\'\' WHERE id=?').run(userId); return jres(res,200,{ok:true}); }
+  // MFA — QR code image (no auth needed; the OTP URL itself is the secret)
+  if(req.method==='GET'&&p==='/api/mfa/qr'){
+    const qurl=(new URL('http://x'+req.url)).searchParams.get('url')||'';
+    if(!qurl.startsWith('otpauth://'))return jres(res,400,{error:'Invalid'});
+    try{
+      const svg=await new Promise((ok,fail)=>execFile('qrencode',['-t','SVG','-l','M','-m','1','-o','-',qurl],(e,out)=>e?fail(e):ok(out)));
+      res.writeHead(200,{'Content-Type':'image/svg+xml','Cache-Control':'no-store'});
+      return res.end(svg);
+    }catch(e){ return jres(res,500,{error:'qrencode unavailable'}); }
+  }
+  // MFA — admin requires MFA for a user (they enroll at next login)
+  if(req.method==='POST'&&p==='/api/mfa/require'){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); const{userId}=await parseBody(req); db.prepare("UPDATE users SET mfa_required=1,mfa_enabled=0,totp_secret='' WHERE id=?").run(userId); return jres(res,200,{ok:true}); }
+  // MFA — disable/remove MFA entirely
+  if(req.method==='POST'&&p==='/api/mfa/disable'){ const{userId}=await parseBody(req); if(au.role!=='admin'&&au.user_id!==userId)return jres(res,403,{error:'Forbidden'}); db.prepare("UPDATE users SET mfa_enabled=0,mfa_required=0,totp_secret='' WHERE id=?").run(userId); return jres(res,200,{ok:true}); }
 
   // Delete recording
   if(req.method==='DELETE'&&p.startsWith('/api/recordings/')){ const id=p.replace('/api/recordings/',''); const s=sessions.get(id); if(s&&s.status==='recording')return jres(res,400,{error:'Stop recording first'}); const used=db.prepare('SELECT COUNT(*) as c FROM clips WHERE recording_id=?').get(id); if(used.c>0)return jres(res,400,{error:`Used by ${used.c} clip(s). Remove clips first.`}); const mp4=path.join(RECORDINGS_DIR,`${id}.mp4`),hd=path.join(RECORDINGS_DIR,id); if(fs.existsSync(mp4))fs.unlinkSync(mp4); if(fs.existsSync(hd))fs.rmSync(hd,{recursive:true,force:true}); db.prepare('DELETE FROM recordings WHERE id=?').run(id); sessions.delete(id); return jres(res,200,{deleted:true}); }

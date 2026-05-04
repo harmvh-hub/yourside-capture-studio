@@ -308,6 +308,15 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
       <button class="lbtn" onclick="doLoginMfa()">Verify</button>
       <button class="lbtn" style="background:transparent;color:var(--text3);margin-top:6px;font-size:14px" onclick="document.getElementById('loginStep2').style.display='none';document.getElementById('loginStep1').style.display='block'">← Back</button>
     </div>
+    <div id="loginStep3" style="display:none">
+      <div style="font-size:13px;color:var(--text2);margin-bottom:10px;text-align:center">MFA is required on this account.<br>Scan the QR code with your authenticator app.</div>
+      <div class="mfa-qr"><img id="enrollQrImg" style="width:160px;height:160px;background:#fff;border-radius:4px;display:block;margin:0 auto" alt="QR Code"></div>
+      <div class="mfa-secret" id="enrollSecret" style="margin:8px 0;font-size:11px"></div>
+      <div class="lf"><label>Enter 6-digit code to confirm</label><input id="lmfaenroll" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" style="letter-spacing:.2em;font-size:22px;text-align:center"></div>
+      <div class="lerr" id="lerr3"></div>
+      <button class="lbtn" onclick="doLoginEnroll()">Activate MFA &amp; Sign In</button>
+      <button class="lbtn" style="background:transparent;color:var(--text3);margin-top:6px;font-size:14px" onclick="document.getElementById('loginStep3').style.display='none';document.getElementById('loginStep1').style.display='block'">← Back</button>
+    </div>
   </div>
 </div>
 
@@ -714,20 +723,6 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
   </div>
 </div>
 
-<!-- MFA SETUP MODAL -->
-<div class="modalbg" id="mfaModal">
-  <div class="modal modal-wide">
-    <h3>🔐 Set Up MFA</h3>
-    <p style="font-size:14px;color:var(--text2);margin-bottom:12px">Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.), then enter the 6-digit code to confirm.</p>
-    <div class="mfa-qr"><canvas id="mfaQr" width="160" height="160"></canvas></div>
-    <div class="mfa-secret" id="mfaSecret"></div>
-    <div class="fg"><label>Confirm Code</label><input id="mfaCode" type="text" inputmode="numeric" maxlength="6" placeholder="123456" style="text-align:center;letter-spacing:.2em;font-size:20px"></div>
-    <div class="frow" style="margin-top:12px">
-      <button class="btn bghost bfull" onclick="closeModal('mfaModal')">Cancel</button>
-      <button class="btn bprimary bfull" onclick="confirmMfa()">Enable MFA</button>
-    </div>
-  </div>
-</div>
 
 <div class="toast" id="toast"></div>
 
@@ -797,7 +792,24 @@ async function doLogin(){
     setTimeout(()=>document.getElementById('lmfa').focus(),50);
     return;
   }
+  if(d.mfaEnrollRequired){
+    _loginCreds={username:u,password:p};
+    document.getElementById('loginStep1').style.display='none';
+    document.getElementById('loginStep3').style.display='block';
+    document.getElementById('enrollQrImg').src='/api/mfa/qr?url='+encodeURIComponent(d.otpUrl);
+    document.getElementById('enrollSecret').textContent=d.secret;
+    document.getElementById('lmfaenroll').value='';
+    setTimeout(()=>document.getElementById('lmfaenroll').focus(),50);
+    return;
+  }
   token=d.token; me=d; saveSession(token); showApp();
+}
+async function doLoginEnroll(){
+  const code=document.getElementById('lmfaenroll').value.trim();
+  document.getElementById('lerr3').textContent='';
+  const d=await api('POST','/api/auth/login',{..._loginCreds,totpCode:code,mfaEnroll:true});
+  if(d.error){document.getElementById('lerr3').textContent=d.error;return;}
+  _loginCreds=null; token=d.token; me=d; saveSession(token); showApp();
 }
 async function doLoginMfa(){
   const code=document.getElementById('lmfa').value.trim();
@@ -809,6 +821,7 @@ async function doLoginMfa(){
 document.addEventListener('keydown',e=>{
   if(e.code==='Enter'&&document.getElementById('loginScreen').style.display!=='none'){
     if(document.getElementById('loginStep2').style.display!=='none') doLoginMfa();
+    else if(document.getElementById('loginStep3').style.display!=='none') doLoginEnroll();
     else doLogin();
   }
 });
@@ -1042,18 +1055,27 @@ async function loadUsers(){
   const d=await api('GET','/api/users'); const isAdmin=me&&me.role==='admin';
   document.getElementById('cuForm').style.display=isAdmin?'':'none';
   document.getElementById('cuSection').style.display=isAdmin?'':'none';
-  document.getElementById('usersList').innerHTML=(d.users||[]).map(u=>`
-    <div class="litem">
+  document.getElementById('usersList').innerHTML=(d.users||[]).map(u=>{
+    const mfaBadge=u.mfa_enabled?'🔐':u.mfa_required?'⏳':'';
+    const mfaTitle=u.mfa_enabled?'MFA enrolled':u.mfa_required?'MFA required — awaiting enrollment':'No MFA';
+    const mfaBtn=isAdmin?(u.mfa_enabled
+      ?`<button class="ibtn" title="Disable MFA" onclick="disableMfa('${u.id}','${u.username}')">🔐</button>`
+      :u.mfa_required
+        ?`<button class="ibtn" title="Cancel MFA requirement" onclick="disableMfa('${u.id}','${u.username}')">⏳</button>`
+        :`<button class="ibtn" title="Require MFA" onclick="requireMfa('${u.id}','${u.username}')">🔓</button>`
+    ):'';
+    return `<div class="litem">
       <div class="lifo">
-        <div class="liname">${u.username} ${u.mfa_enabled?'🔐':''}</div>
-        <div class="lisub">${u.role}${u.email?' · '+u.email:''}</div>
+        <div class="liname">${u.username} <span title="${mfaTitle}">${mfaBadge}</span></div>
+        <div class="lisub">${u.role}${u.email?' · '+u.email:''}${mfaBadge?' · '+mfaTitle:''}</div>
       </div>
       <div class="lacts">
-        ${isAdmin?`<button class="ibtn" title="MFA" onclick="setupMfa('${u.id}','${u.username}',${u.mfa_enabled})">${u.mfa_enabled?'🔐':'🔓'}</button>`:''}
+        ${mfaBtn}
         ${isAdmin?`<button class="ibtn" onclick="promptChangePw('${u.id}','${u.username}')">🔑</button>`:''}
         ${isAdmin?`<button class="ibtn d" onclick="delUser('${u.id}','${u.username}')">🗑</button>`:''}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 async function createUser(){
   const username=document.getElementById('un').value.trim(),password=document.getElementById('up').value,role=document.getElementById('ur').value,email=document.getElementById('ue').value.trim();
@@ -1079,31 +1101,15 @@ async function changeMyPw(){
 }
 
 // ── MFA ──────────────────────────────────────────────────────────────────────
-let _mfaUserId=null;
-async function setupMfa(userId,username,enabled){
-  if(enabled){ if(!confirm(`Disable MFA for "${username}"?`))return; await api('POST','/api/mfa/disable',{userId}); toast('MFA disabled','ok'); loadUsers(); return; }
-  _mfaUserId=userId;
-  const d=await api('POST','/api/mfa/setup',{userId}); if(d.error){toast(d.error,'err');return}
-  document.getElementById('mfaSecret').textContent=d.secret;
-  document.getElementById('mfaCode').value='';
-  document.getElementById('mfaModal').classList.add('show');
-  drawQr(d.otpUrl);
+async function requireMfa(userId,username){
+  if(!confirm(`Require MFA for "${username}"?\nThey will be prompted to enroll at their next login.`))return;
+  const r=await api('POST','/api/mfa/require',{userId}); if(r.error){toast(r.error,'err');return;}
+  toast(`MFA required for ${username}. They will enroll at next login.`,'ok'); loadUsers();
 }
-async function confirmMfa(){
-  const code=document.getElementById('mfaCode').value.trim();
-  const r=await api('POST','/api/mfa/enable',{userId:_mfaUserId,code}); if(r.error){toast(r.error,'err');return}
-  closeModal('mfaModal'); toast('MFA enabled','ok'); loadUsers();
-}
-function drawQr(text){
-  const canvas=document.getElementById('mfaQr'); const ctx=canvas.getContext('2d');
-  ctx.clearRect(0,0,160,160); ctx.fillStyle='#fff'; ctx.fillRect(0,0,160,160);
-  ctx.fillStyle='#333'; ctx.font='9px monospace'; ctx.textAlign='center';
-  ctx.fillText('Scan with authenticator app',80,80);
-  ctx.fillText('or enter secret manually below',80,94);
-  // Attempt to load QR via img (requires internet)
-  const img=new Image(); img.crossOrigin='anonymous';
-  img.src=`https://chart.googleapis.com/chart?chs=160x160&chld=M|0&cht=qr&chl=${encodeURIComponent(text)}`;
-  img.onload=()=>{ctx.clearRect(0,0,160,160);ctx.drawImage(img,0,0,160,160);};
+async function disableMfa(userId,username){
+  if(!confirm(`Remove MFA for "${username}"?`))return;
+  const r=await api('POST','/api/mfa/disable',{userId}); if(r.error){toast(r.error,'err');return;}
+  toast('MFA removed','ok'); loadUsers();
 }
 
 // ── SRT STATS ────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 FROM node:22-alpine
 
 # FFmpeg with SRT support
-RUN apk add --no-cache ffmpeg libsrt-progs
+RUN apk add --no-cache ffmpeg libsrt-progs qrencode
 
 WORKDIR /app
 
