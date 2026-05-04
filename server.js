@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION_NUM = '2.16.3';
+const VERSION_NUM = '2.16.4';
 const GODS = ['Zeus','Hera','Athena','Apollo','Artemis','Ares','Aphrodite','Hermes','Hephaestus','Poseidon','Demeter','Dionysus','Hades','Persephone','Hestia','Eos','Helios','Selene','Nike','Tyche','Nemesis','Iris','Eris','Morpheus','Hypnos','Eros','Pan','Proteus','Triton','Nyx'];
 const VERSION = `${VERSION_NUM} (${GODS[Math.floor(Math.random()*GODS.length)]})`;
 const PORT           = process.env.PORT           || 3000;
@@ -421,6 +421,36 @@ const server = http.createServer(async(req,res)=>{
 
   // Rename recording
   if(req.method==='POST'&&p.startsWith('/api/record/rename/')){ const id=p.replace('/api/record/rename/',''); const{name}=await parseBody(req); db.prepare("INSERT INTO recordings (id,name) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name").run(id,name||''); return jres(res,200,{ok:true}); }
+
+  // Frame export (single PNG, saved as still asset)
+  if(req.method==='POST'&&p==='/api/export-frame'){
+    const{id,timestamp,aspectRatio,cropX,name,projectId}=await parseBody(req);
+    if(!id||timestamp==null)return jres(res,400,{error:'Missing fields'});
+    const s=sessions.get(id);
+    const inputFile=(s&&s.status==='recording')
+      ?path.join(s.hlsDir,'stream.m3u8')
+      :path.join(RECORDINGS_DIR,`${id}.mp4`);
+    if(!fs.existsSync(inputFile))return jres(res,404,{error:'Recording not found'});
+    const even=n=>Math.floor(n/2)*2;
+    const info=await probeVideo(inputFile)||{width:1920,height:1080};
+    const sw=info.width,sh=info.height;
+    let vf='';
+    if(aspectRatio==='9:16'){const cw=even(Math.floor(sh*9/16)),cx=even(Math.floor((sw-cw)*Math.max(0,Math.min(1,cropX??0.5))));vf=`crop=${cw}:${sh}:${cx}:0,scale=1080:1920`;}
+    else if(aspectRatio==='1:1'){const sq=even(Math.min(sw,sh)),cx=even(Math.floor((sw-sq)/2)),cy=even(Math.floor((sh-sq)/2));vf=`crop=${sq}:${sq}:${cx}:${cy},scale=1080:1080`;}
+    else if(aspectRatio==='16:9'){vf=`scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black`;}
+    const frameId=uuid();
+    const frameFile=path.join(EXPORTS_DIR,`frame_${frameId}.png`);
+    const args=['-y','-ss',String(timestamp),'-i',inputFile,'-vframes','1'];
+    if(vf)args.push('-vf',vf);
+    args.push(frameFile);
+    try{await new Promise((ok,fail)=>execFile('ffmpeg',args,err=>err?fail(err):ok()));}
+    catch(e){return jres(res,500,{error:'Frame extraction failed: '+e.message});}
+    const clipName=name||`Frame ${Math.round(timestamp)}s`;
+    const clipId=uuid();
+    db.prepare('INSERT INTO clips (id,name,project_id,recording_id,in_point,out_point,export_file) VALUES (?,?,?,?,?,?,?)')
+      .run(clipId,clipName,projectId||null,id,timestamp,timestamp,`/exports/frame_${frameId}.png`);
+    return jres(res,200,{id:clipId,exportFile:`/exports/frame_${frameId}.png`});
+  }
 
   // Export
   if(req.method==='POST'&&p==='/api/export'){

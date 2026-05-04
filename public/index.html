@@ -363,12 +363,12 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
         <div class="empty"><div class="eico">📼</div><p>No recordings yet</p></div>
       </div>
 
-      <!-- Saved Clips -->
+      <!-- Saved Assets -->
       <div class="sblist-header" style="border-top:1px solid var(--border);margin-top:0">
-        <div class="sbt"><span>Saved Clips</span><button class="btn bghost bsm" onclick="togglePanel('clips')">All ›</button></div>
+        <div class="sbt"><span>Saved Assets</span><button class="btn bghost bsm" onclick="togglePanel('clips')">All ›</button></div>
       </div>
       <div class="sblist" id="sbClipList" style="flex:1;max-height:40%">
-        <div class="empty"><div class="eico">✂️</div><p>No clips yet</p></div>
+        <div class="empty"><div class="eico">✂️</div><p>No assets yet</p></div>
       </div>
     </aside>
 
@@ -416,7 +416,7 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
             <button class="tbtn" onclick="fFwd()">▶</button>
             <button class="tbtn" onclick="gEnd()">⏭</button>
             <button class="tbtn" id="mbtn" onclick="toggleMute()" title="Mute/Unmute">🔊</button>
-            <button class="tbtn" onclick="exportFrame()" title="Export current frame as PNG">📷</button>
+            <button class="tbtn" onclick="openFrameExport()" title="Export current frame as PNG">📷</button>
           </div>
           <div class="iobts">
             <button class="iobtn in"  onclick="setIn()">[ In</button>
@@ -461,7 +461,7 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
 
 <div class="panov" id="pan-clips">
   <div class="pansheet">
-    <h2>🎬 All Saved Clips <button class="panclose" onclick="closePanel('clips')">×</button></h2>
+    <h2>🎬 All Saved Assets <button class="panclose" onclick="closePanel('clips')">×</button></h2>
     <div class="fg"><label>Filter by project</label>
       <select id="clipProjFilter" onchange="loadAllClips()"><option value="">All projects</option></select>
     </div>
@@ -670,13 +670,13 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
       </div>
       <div class="ar-hint" id="arHint" style="margin-bottom:14px;margin-top:4px">16:9 — scales to 1920×1080, letterboxed if needed</div>
       <div class="crop-wrap" id="cropWrap">
-        <div class="crop-label">Drag to position crop · scrub to pick frame</div>
+        <div class="crop-label" id="cropLabel">Drag to position crop · scrub to pick frame</div>
         <canvas id="cropCanvas" class="crop-canvas" width="640" height="360"></canvas>
         <input type="range" id="cropScrub" class="crop-scrub" min="0" max="100" step="0.1" value="0">
         <div class="crop-hint" id="cropHint">Centre crop selected</div>
       </div>
-      <div class="fg" style="margin-bottom:10px;margin-top:4px"><label>Clip filename (optional)</label><input id="exFilename" type="text" placeholder="clip_name" style="font-family:var(--mono)"></div>
-      <button class="btn bprimary bfull" onclick="startExport()">↓ Export MP4</button>
+      <div class="fg" style="margin-bottom:10px;margin-top:4px"><label id="exFileLabel">Clip filename (optional)</label><input id="exFilename" type="text" placeholder="clip_name" style="font-family:var(--mono)"></div>
+      <button class="btn bprimary bfull" id="exExportBtn" onclick="startExport()">↓ Export MP4</button>
       <button class="closebtn" onclick="closeExp()">Cancel</button>
     </div>
 
@@ -687,7 +687,7 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
       <div class="ppct" id="ppct">0%</div>
       <div id="exCancelWrap" style="margin-bottom:8px"><button class="closebtn" onclick="closeExp()">Cancel</button></div>
       <div class="exacts" id="exacts" style="display:none">
-        <a id="dllink"><button class="dlbtn">↓ Download MP4</button></a>
+        <a id="dllink"><button class="dlbtn" id="dlbtn">↓ Download MP4</button></a>
         <button class="extbtn" onclick="toDropbox()">📦 Save to Dropbox</button>
         <button class="extbtn" onclick="toFacebook()">📘 Share to Facebook</button>
         <button class="closebtn" onclick="closeExp()">Close</button>
@@ -743,7 +743,7 @@ let expPoll=null, refreshInt=null, liveInt=null;
 let lastExpUrl=null, editClipId=null, selectedClipId=null;
 let sidebarClips=[];
 let waveformCache={};
-let exportAR='16:9';
+let exportAR='16:9', exportMode='clip';
 const FPS=25;
 
 const vid   = document.getElementById('preview');
@@ -1440,7 +1440,26 @@ vid.addEventListener('click',()=>togglePlay());
 
 function togglePlay(){const b=document.getElementById('pbtn');if(vid.paused){vid.play();b.textContent='⏸';}else{vid.pause();b.textContent='▶';}}
 function toggleMute(){vid.muted=!vid.muted;document.getElementById('mbtn').textContent=vid.muted?'🔇':'🔊';}
-function exportFrame(){ if(!activeRecId||vid.readyState<2){toast('No video loaded','err');return;} const c=document.createElement('canvas'); c.width=vid.videoWidth||1920; c.height=vid.videoHeight||1080; c.getContext('2d').drawImage(vid,0,0); c.toBlob(blob=>{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`frame_${activeRecId.slice(0,8)}_${Math.round(vid.currentTime*1000)}ms.png`;a.click();},'image/png'); toast('Frame exported','ok'); }
+function openFrameExport(){
+  if(!activeRecId||vid.readyState<2){toast('No video loaded','err');return;}
+  exportMode='frame'; exportAR='16:9'; cropX=0.5;
+  document.getElementById('exTitle').textContent='Export Frame';
+  document.getElementById('exRange').textContent=`Frame at ${hms(vid.currentTime)}`;
+  document.getElementById('exSetup').style.display='block';
+  document.getElementById('exProgress').style.display='none';
+  document.getElementById('exacts').style.display='none';
+  document.getElementById('expov').classList.add('show');
+  document.querySelectorAll('.ar-btn').forEach(b=>b.classList.remove('sel'));
+  document.querySelector('.ar-btn').classList.add('sel');
+  document.getElementById('arHint').textContent='16:9 — scales to 1920×1080, letterboxed if needed';
+  document.getElementById('cropWrap').classList.remove('show');
+  document.getElementById('cropLabel').textContent='Drag to position crop';
+  document.getElementById('cropScrub').style.display='none';
+  document.getElementById('exExportBtn').textContent='↓ Export PNG';
+  document.getElementById('exFileLabel').textContent='Filename (optional)';
+  document.getElementById('exFilename').placeholder='frame_name';
+  initCropStage();
+}
 function gStart(){vid.currentTime=0;}
 function gEnd(){if(dur)vid.currentTime=dur;}
 function fBack(){vid.currentTime=Math.max(0,vid.currentTime-1/FPS);}
@@ -1462,21 +1481,25 @@ async function loadSidebarClips(){
 
 function renderSidebarClips(){
   const el=document.getElementById('sbClipList'); if(!el)return;
-  if(!sidebarClips.length){ el.innerHTML='<div class="empty"><div class="eico">✂️</div><p>No clips yet</p></div>'; return; }
-  el.innerHTML=sidebarClips.map(c=>`
-    <div class="clitem ${c.id===selectedClipId?'active':''}" id="sbclip-${c.id}"
+  if(!sidebarClips.length){ el.innerHTML='<div class="empty"><div class="eico">✂️</div><p>No assets yet</p></div>'; return; }
+  el.innerHTML=sidebarClips.map(c=>{
+    const isFrame=c.in_point===c.out_point;
+    const meta=isFrame?`Still · ${hms(c.in_point)}`:`${hms(c.in_point)} – ${hms(c.out_point)} · ${hms(c.out_point-c.in_point)}`;
+    const dlBtn=isFrame&&c.export_file?`<a href="${c.export_file}" download onclick="event.stopPropagation()"><button class="ibtn g" title="Download PNG">↓</button></a>`:`<button class="ibtn g" title="Export" onclick="event.stopPropagation();exportClipDirect('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">↓</button>`;
+    return `<div class="clitem ${c.id===selectedClipId?'active':''}" id="sbclip-${c.id}"
          onclick="selectClip('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">
-      <div class="clico">✂</div>
+      <div class="clico">${isFrame?'🖼':'✂'}</div>
       <div class="clinfo">
         <div class="clname">${c.name}</div>
-        <div class="clmeta">${hms(c.in_point)} – ${hms(c.out_point)} · ${hms(c.out_point-c.in_point)}</div>
+        <div class="clmeta">${meta}</div>
       </div>
       <div class="clactions">
-        <button class="ibtn" title="Play clip (Shift+Space)" onclick="event.stopPropagation();playClip('${c.recording_id}',${c.in_point},${c.out_point})">▶</button>
-        <button class="ibtn g" title="Export" onclick="event.stopPropagation();exportClipDirect('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">↓</button>
+        ${!isFrame?`<button class="ibtn" title="Play clip" onclick="event.stopPropagation();playClip('${c.recording_id}',${c.in_point},${c.out_point})">▶</button>`:''}
+        ${dlBtn}
         <button class="ibtn d" title="Delete" onclick="event.stopPropagation();delClip('${c.id}','${c.name.replace(/'/g,"\\'")}')">🗑</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 let _allClips=[];
@@ -1615,7 +1638,7 @@ let cropX=0.5;
 function openExport(){
   if(!activeRecId){toast('Select a recording','err');return}
   if(outPt<=inPt){toast('Set valid in/out points','err');return}
-  exportAR='16:9'; cropX=0.5;
+  exportMode='clip'; exportAR='16:9'; cropX=0.5;
   document.getElementById('exTitle').textContent='Export Clip';
   document.getElementById('exRange').textContent=`${hms(inPt)} → ${hms(outPt)}   duration: ${hms(outPt-inPt)}`;
   document.getElementById('exSetup').style.display='block';
@@ -1626,6 +1649,11 @@ function openExport(){
   document.querySelector('.ar-btn').classList.add('sel');
   document.getElementById('arHint').textContent='16:9 — scales to 1920×1080, letterboxed if needed';
   document.getElementById('cropWrap').classList.remove('show');
+  document.getElementById('cropLabel').textContent='Drag to position crop · scrub to pick frame';
+  document.getElementById('cropScrub').style.display='';
+  document.getElementById('exExportBtn').textContent='↓ Export MP4';
+  document.getElementById('exFileLabel').textContent='Clip filename (optional)';
+  document.getElementById('exFilename').placeholder='clip_name';
   initCropStage();
 }
 
@@ -1633,20 +1661,32 @@ function selAR(ar,btn){
   exportAR=ar;
   document.querySelectorAll('.ar-btn').forEach(b=>b.classList.remove('sel'));
   btn.classList.add('sel');
-  const hints={'16:9':'16:9 — scales to 1920×1080, letterboxed if needed','9:16':'9:16 — drag below to choose which part of the frame to keep','1:1':'1:1 — crops centre square and scales to 1080×1080','original':'Original — no crop, keeps source dimensions exactly'};
+  const hints={'16:9':'16:9 — scales to 1920×1080, letterboxed if needed','9:16':'9:16 — drag to choose which part of the frame to keep','1:1':'1:1 — crops centre square and scales to 1080×1080','original':'Original — no crop, keeps source dimensions exactly'};
   document.getElementById('arHint').textContent=hints[ar]||'';
   document.getElementById('cropWrap').classList.toggle('show',ar==='9:16');
   if(ar==='9:16'){
-    const onSeeked=()=>{vid.removeEventListener('seeked',onSeeked);drawCropCanvas();};
-    if(vid.readyState>=2&&Math.abs(vid.currentTime-inPt)<0.5){drawCropCanvas();}
-    else{vid.addEventListener('seeked',onSeeked);vid.currentTime=inPt;}
+    if(exportMode==='frame'){
+      drawCropCanvas();
+    } else {
+      const onSeeked=()=>{vid.removeEventListener('seeked',onSeeked);drawCropCanvas();};
+      if(vid.readyState>=2&&Math.abs(vid.currentTime-inPt)<0.5){drawCropCanvas();}
+      else{vid.addEventListener('seeked',onSeeked);vid.currentTime=inPt;}
+    }
   }
 }
 
 function initCropStage(){
   const canvas=document.getElementById('cropCanvas');
   const scrub=document.getElementById('cropScrub');
-  scrub.min=inPt; scrub.max=outPt; scrub.step=0.1; scrub.value=inPt;
+  if(exportMode==='clip'){
+    scrub.min=inPt; scrub.max=outPt; scrub.step=0.1; scrub.value=inPt;
+    scrub.oninput=()=>{
+      const t=parseFloat(scrub.value);
+      const onSeeked=()=>{vid.removeEventListener('seeked',onSeeked);drawCropCanvas();};
+      vid.addEventListener('seeked',onSeeked);
+      vid.currentTime=t;
+    };
+  }
   const drag=e=>{
     const r=canvas.getBoundingClientRect();
     const px=(e.touches?e.touches[0].clientX:e.clientX)-r.left;
@@ -1657,12 +1697,6 @@ function initCropStage(){
   canvas.onmousedown=e=>{drag(e);canvas.onmousemove=drag;document.onmouseup=()=>{canvas.onmousemove=null;};};
   canvas.ontouchstart=e=>{drag(e);e.preventDefault();};
   canvas.ontouchmove=e=>{drag(e);e.preventDefault();};
-  scrub.oninput=()=>{
-    const t=parseFloat(scrub.value);
-    const onSeeked=()=>{vid.removeEventListener('seeked',onSeeked);drawCropCanvas();};
-    vid.addEventListener('seeked',onSeeked);
-    vid.currentTime=t;
-  };
 }
 function drawCropCanvas(){
   const c=document.getElementById('cropCanvas'); if(!c)return;
@@ -1679,6 +1713,7 @@ function drawCropCanvas(){
 }
 
 async function startExport(){
+  if(exportMode==='frame'){startFrameExport();return;}
   document.getElementById('exSetup').style.display='none';
   document.getElementById('exProgress').style.display='block';
   document.getElementById('exacts').style.display='none';
@@ -1686,6 +1721,7 @@ async function startExport(){
   document.getElementById('ppct').textContent='0%';
   document.getElementById('exTitle').textContent='Exporting…';
   document.getElementById('exDesc').textContent=`${hms(inPt)} → ${hms(outPt)} · ${exportAR}`;
+  document.getElementById('dlbtn').textContent='↓ Download MP4';
 
   const body={id:activeRecId,inPoint:inPt,outPoint:outPt,clipId:editClipId,aspectRatio:exportAR,cropX};
 
@@ -1711,6 +1747,35 @@ async function startExport(){
       toast('Export error','err');
     }
   },800);
+}
+
+async function startFrameExport(){
+  document.getElementById('exSetup').style.display='none';
+  document.getElementById('exProgress').style.display='block';
+  document.getElementById('exacts').style.display='none';
+  document.getElementById('pfill').style.width='2%';
+  document.getElementById('ppct').textContent='…';
+  document.getElementById('exTitle').textContent='Exporting frame…';
+  document.getElementById('exDesc').textContent=`Frame at ${hms(vid.currentTime)} · ${exportAR}`;
+  document.getElementById('exCancelWrap').style.display='none';
+  document.getElementById('dlbtn').textContent='↓ Download PNG';
+
+  const fname=document.getElementById('exFilename').value.trim();
+  const d=await api('POST','/api/export-frame',{
+    id:activeRecId, timestamp:vid.currentTime,
+    aspectRatio:exportAR, cropX,
+    name:fname||null,
+    projectId:activeProject?.id||null
+  });
+  if(d.error){toast(d.error,'err');document.getElementById('exTitle').textContent='Export failed';document.getElementById('exacts').style.display='flex';return;}
+  lastExpUrl=d.exportFile;
+  document.getElementById('pfill').style.width='100%';
+  document.getElementById('ppct').textContent='100%';
+  document.getElementById('exTitle').textContent='Frame exported!';
+  const lnk=document.getElementById('dllink'); lnk.href=d.exportFile;
+  lnk.download=fname?fname.replace(/[^a-zA-Z0-9_\-\.]/g,'_')+'.png':d.exportFile.split('/').pop();
+  document.getElementById('exacts').style.display='flex';
+  loadSidebarClips();
 }
 
 function closeExp(){clearInterval(expPoll);document.getElementById('expov').classList.remove('show');}
