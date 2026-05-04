@@ -1524,22 +1524,29 @@ function renderAllClips(){
   const el=document.getElementById('allClipsList'); if(!el)return;
   const sel=getSelectedClipIds();
   document.getElementById('batchExpBtn').disabled=sel.length===0;
-  el.innerHTML=_allClips.length?_allClips.map(c=>`
-    <div class="litem batch-bar" id="aclip-${c.id}">
-      <input type="checkbox" class="batch-cb" id="cb-${c.id}" onchange="onBatchCbChange()" ${sel.includes(c.id)?'checked':''}>
+  el.innerHTML=_allClips.length?_allClips.map(c=>{
+    const isFrame=c.in_point===c.out_point;
+    const meta=isFrame?`Still · ${hms(c.in_point)}`:`${hms(c.in_point)} → ${hms(c.out_point)} · ${hms(c.out_point-c.in_point)}${c.notes?' · '+c.notes:''}`;
+    const dlBtn=isFrame&&c.export_file
+      ?`<a href="${c.export_file}" download><button class="ibtn g" title="Download PNG">↓</button></a>`
+      :isFrame
+        ?''
+        :`<button class="ibtn g" title="Export" onclick="exportClipDirect('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">↓</button>`;
+    return `<div class="litem batch-bar" id="aclip-${c.id}">
+      ${isFrame?'<div style="width:16px;flex-shrink:0"></div>':`<input type="checkbox" class="batch-cb" id="cb-${c.id}" onchange="onBatchCbChange()" ${sel.includes(c.id)?'checked':''}>`}
       <div class="lifo">
-        <div class="liname">${c.name} <span class="batch-status" id="bst-${c.id}" style="display:none"></span></div>
-        <div class="lisub">${hms(c.in_point)} → ${hms(c.out_point)} · ${hms(c.out_point-c.in_point)}${c.notes?' · '+c.notes:''}</div>
+        <div class="liname">${isFrame?'🖼 ':''}${c.name} <span class="batch-status" id="bst-${c.id}" style="display:none"></span></div>
+        <div class="lisub">${meta}</div>
       </div>
       <div class="lacts">
-        <button class="ibtn g" title="Export" onclick="exportClipDirect('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">↓</button>
-        <button class="ibtn" title="Play" onclick="playClip('${c.recording_id}',${c.in_point},${c.out_point})">▶</button>
-        <button class="ibtn" title="Load in editor" onclick="loadClip('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">⤴</button>
-        <button class="ibtn" title="Edit" onclick="editClip('${c.id}','${c.name}','${(c.notes||'').replace(/'/g,"\\'")}')">✏</button>
-        ${c.export_file?`<a href="${c.export_file}" download><button class="ibtn" title="Download exported">⬇</button></a>`:''}
+        ${dlBtn}
+        ${!isFrame?`<button class="ibtn" title="Play" onclick="playClip('${c.recording_id}',${c.in_point},${c.out_point})">▶</button>`:''}
+        ${!isFrame?`<button class="ibtn" title="Load in editor" onclick="loadClip('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">⤴</button>`:''}
+        <button class="ibtn" title="Edit name" onclick="editClip('${c.id}','${c.name}','${(c.notes||'').replace(/'/g,"\\'")}')">✏</button>
         <button class="ibtn d" title="Delete" onclick="delClip('${c.id}','${c.name.replace(/'/g,"\\'")}')">🗑</button>
       </div>
-    </div>`).join(''):'<div class="empty" style="padding:20px 0">No saved assets</div>';
+    </div>`;
+  }).join(''):'<div class="empty" style="padding:20px 0">No saved assets</div>';
 }
 function getSelectedClipIds(){ return _allClips.filter(c=>document.getElementById('cb-'+c.id)?.checked).map(c=>c.id); }
 function onBatchCbChange(){ document.getElementById('batchExpBtn').disabled=getSelectedClipIds().length===0; }
