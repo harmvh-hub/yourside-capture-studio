@@ -248,8 +248,8 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
 .crop-wrap{display:none;margin-bottom:14px}
 .crop-wrap.show{display:block}
 .crop-label{font-size:12px;color:var(--text3);font-family:var(--mono);margin-bottom:6px}
-.crop-stage{position:relative;width:100%;height:64px;background:var(--bg4);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;cursor:ew-resize;user-select:none}
-.crop-box{position:absolute;top:0;bottom:0;background:rgba(232,80,10,.3);border-left:2px solid var(--accent);border-right:2px solid var(--accent);pointer-events:none}
+.crop-canvas{width:100%;aspect-ratio:16/9;display:block;border-radius:var(--r);cursor:ew-resize;user-select:none;border:1px solid var(--border)}
+.crop-scrub{width:100%;margin-top:8px;accent-color:var(--accent);cursor:pointer}
 .crop-hint{font-size:11px;color:var(--text3);font-family:var(--mono);margin-top:4px;text-align:center}
 
 /* BATCH EXPORT */
@@ -662,11 +662,10 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
       </div>
       <div class="ar-hint" id="arHint" style="margin-bottom:14px;margin-top:4px">16:9 — scales to 1920×1080, letterboxed if needed</div>
       <div class="crop-wrap" id="cropWrap">
-        <div class="crop-label">Drag to select crop region</div>
-        <div class="crop-stage" id="cropStage">
-          <div class="crop-box" id="cropBox"></div>
-        </div>
-        <div class="crop-hint" id="cropHint">Center crop selected</div>
+        <div class="crop-label">Drag to position crop · scrub to pick frame</div>
+        <canvas id="cropCanvas" class="crop-canvas" width="640" height="360"></canvas>
+        <input type="range" id="cropScrub" class="crop-scrub" min="0" max="100" step="0.1" value="0">
+        <div class="crop-hint" id="cropHint">Centre crop selected</div>
       </div>
       <div class="fg" style="margin-bottom:10px;margin-top:4px"><label>Clip filename (optional)</label><input id="exFilename" type="text" placeholder="clip_name" style="font-family:var(--mono)"></div>
       <button class="btn bprimary bfull" onclick="startExport()">↓ Export MP4</button>
@@ -1580,23 +1579,44 @@ function selAR(ar,btn){
   const hints={'16:9':'16:9 — scales to 1920×1080, letterboxed if needed','9:16':'9:16 — drag below to choose which part of the frame to keep','1:1':'1:1 — crops centre square and scales to 1080×1080','original':'Original — no crop, keeps source dimensions exactly'};
   document.getElementById('arHint').textContent=hints[ar]||'';
   document.getElementById('cropWrap').classList.toggle('show',ar==='9:16');
-  if(ar==='9:16') updateCropBox();
+  if(ar==='9:16'){
+    const onSeeked=()=>{vid.removeEventListener('seeked',onSeeked);drawCropCanvas();};
+    if(vid.readyState>=2&&Math.abs(vid.currentTime-inPt)<0.5){drawCropCanvas();}
+    else{vid.addEventListener('seeked',onSeeked);vid.currentTime=inPt;}
+  }
 }
 
 function initCropStage(){
-  const stage=document.getElementById('cropStage');
-  const move=e=>{const r=stage.getBoundingClientRect();const cx=e.touches?e.touches[0].clientX:e.clientX;cropX=Math.max(0,Math.min(1,(cx-r.left)/r.width));updateCropBox();};
-  stage.onmousedown=e=>{move(e);stage.onmousemove=move;document.onmouseup=()=>{stage.onmousemove=null;};};
-  stage.ontouchstart=e=>{move(e);e.preventDefault();};
-  stage.ontouchmove=e=>{move(e);e.preventDefault();};
+  const canvas=document.getElementById('cropCanvas');
+  const scrub=document.getElementById('cropScrub');
+  scrub.min=inPt; scrub.max=outPt; scrub.step=0.1; scrub.value=inPt;
+  const drag=e=>{
+    const r=canvas.getBoundingClientRect();
+    const px=(e.touches?e.touches[0].clientX:e.clientX)-r.left;
+    const W=canvas.width, bw=W*81/256;
+    cropX=Math.max(0,Math.min(1,(px/r.width*W-bw/2)/(W-bw)));
+    drawCropCanvas();
+  };
+  canvas.onmousedown=e=>{drag(e);canvas.onmousemove=drag;document.onmouseup=()=>{canvas.onmousemove=null;};};
+  canvas.ontouchstart=e=>{drag(e);e.preventDefault();};
+  canvas.ontouchmove=e=>{drag(e);e.preventDefault();};
+  scrub.oninput=()=>{
+    const t=parseFloat(scrub.value);
+    const onSeeked=()=>{vid.removeEventListener('seeked',onSeeked);drawCropCanvas();};
+    vid.addEventListener('seeked',onSeeked);
+    vid.currentTime=t;
+  };
 }
-function updateCropBox(){
-  const stage=document.getElementById('cropStage');
-  const w=stage.offsetWidth||200; const boxW=Math.round(w*(9/16)*(16/9)*(9/16)); // 9/16 of 16:9 width = (9*9)/(16*16) ≈ but simpler: boxW = w * (9/16)/(16/9) ... actually for 9:16 from 16:9: cropWidth = height*(9/16), stageHeight maps to full height so boxW = stage width * (sh * 9/16) / sw; approximate as 56% of stage width
-  const bw=Math.round(w*0.5625); // 9/16 of width (assumes 16:9 aspect)
-  const left=Math.round((w-bw)*cropX);
-  const box=document.getElementById('cropBox');
-  box.style.left=left+'px'; box.style.width=bw+'px';
+function drawCropCanvas(){
+  const c=document.getElementById('cropCanvas'); if(!c)return;
+  const ctx=c.getContext('2d'); const W=c.width,H=c.height;
+  ctx.fillStyle='#0f1117'; ctx.fillRect(0,0,W,H);
+  if(vid.readyState>=2) ctx.drawImage(vid,0,0,W,H);
+  const bw=Math.round(W*81/256), left=Math.round((W-bw)*cropX);
+  ctx.fillStyle='rgba(0,0,0,0.6)';
+  ctx.fillRect(0,0,left,H); ctx.fillRect(left+bw,0,W-left-bw,H);
+  ctx.strokeStyle='#e8500a'; ctx.lineWidth=2;
+  ctx.strokeRect(left+1,1,bw-2,H-2);
   const pct=Math.round(cropX*100);
   document.getElementById('cropHint').textContent=pct<=5?'Left edge':pct>=95?'Right edge':pct===50?'Centre crop':`${pct}% from left`;
 }
