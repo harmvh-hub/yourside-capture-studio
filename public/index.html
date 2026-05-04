@@ -146,6 +146,7 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
 .zbtn:hover{color:var(--text);border-color:var(--border2)}
 .zval{font-family:var(--mono);font-size:12px;color:var(--text3);width:30px;text-align:center}
 .tcdis{font-family:var(--mono);font-size:14px;color:var(--text2);margin-left:6px}
+.fpsbadge{font-family:var(--mono);font-size:12px;color:var(--text3);margin-left:7px;display:none}
 
 .tlscroll{overflow-x:auto;overflow-y:hidden;width:100%}
 .tlscroll::-webkit-scrollbar{height:5px}
@@ -392,6 +393,7 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
             <button class="zbtn" onclick="zIn()">+</button>
           </div>
           <span class="tcdis" id="tcdis">00:00:00</span>
+          <span class="fpsbadge" id="fpsbadge"></span>
         </div>
         <div class="tlscroll" id="tlscroll">
           <div class="tlinner" id="tlinner">
@@ -1080,6 +1082,7 @@ async function refreshStats(){
   document.getElementById('st-bitrate').textContent=s.mbitRate!=null?Math.round(s.mbitRate*1000):'—';
   document.getElementById('st-bandwidth').textContent=s.bandwidth!=null?s.bandwidth.toFixed(2):'—';
   document.getElementById('st-fps').textContent=s.fps!=null?s.fps.toFixed(1):'—';
+  const fb=document.getElementById('fpsbadge'); if(s.fps!=null){fb.textContent=s.fps.toFixed(1)+' fps';fb.style.display='';}else{fb.style.display='none';}
   document.getElementById('st-rtt').textContent=s.rtt!=null?s.rtt.toFixed(1):'—';
   document.getElementById('st-loss').textContent=s.pktLoss!=null?s.pktLoss:'—';
   document.getElementById('st-drop').textContent=s.pktDrop!=null?s.pktDrop:'—';
@@ -1184,6 +1187,7 @@ async function confirmDelRec(){
 async function selRec(id,live){
   if(hls){hls.destroy();hls=null}
   clearInterval(liveInt);
+  document.getElementById('fpsbadge').style.display='none';
   activeRecId=id; isLive=live;
   localStorage.setItem('ys_lastRec',id);
   loadRecs(); loadSidebarClips();
@@ -1223,6 +1227,8 @@ async function selRec(id,live){
     liveInt=setInterval(async()=>{
       const d=await api('GET','/api/probe/'+id);
       if(d.duration&&d.duration>dur){ dur=d.duration; if(outPtAuto)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); }
+      const sd=await api('GET','/api/srt-stats/'+id);
+      if(sd.live){ const fps=(sd.stats||{}).fps; const fb=document.getElementById('fpsbadge'); if(fps!=null){fb.textContent=fps.toFixed(1)+' fps';fb.style.display='';}else{fb.style.display='none';} }
     },3000);
   } else {
     // Finished MP4 — serve via range-request stream
