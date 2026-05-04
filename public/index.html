@@ -343,8 +343,8 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
             <div class="proj-card-srt" id="pcSrt"></div>
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:13px;color:var(--text2)">
               <span style="flex:1">Timecode</span>
-              <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="radio" name="tcmode" value="tod" checked onchange="tcMode='tod'"> ToD</label>
-              <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="radio" name="tcmode" value="zero" onchange="tcMode='zero'"> From 0</label>
+              <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="radio" name="tcmode" value="tod" checked onchange="tcMode='tod';buildRuler()"> ToD</label>
+              <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="radio" name="tcmode" value="zero" onchange="tcMode='zero';buildRuler()"> From 0</label>
             </div>
             <div class="proj-btn-row">
               <button class="btn bprimary" id="recBtn" onclick="startRec()" style="flex:1">⏺ Start</button>
@@ -1262,6 +1262,7 @@ async function selRec(id,live){
     // Fallback server poll for duration
     liveInt=setInterval(async()=>{
       const d=await api('GET','/api/probe/'+id);
+      if(d.created&&activeRecId===id) tcRecStart=d.created;
       if(d.duration&&d.duration>dur){ dur=d.duration; if(outPtAuto)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); scrollToLiveEnd(); }
       const sd=await api('GET','/api/srt-stats/'+id);
       if(sd.live){ const fps=(sd.stats||{}).fps; const fb=document.getElementById('fpsbadge'); if(fps!=null){fb.textContent=fps.toFixed(1)+' fps';fb.style.display='';}else{fb.style.display='none';} }
@@ -1327,10 +1328,13 @@ function buildRuler(){
   const pps=getPPS();
   const intervals=[1,2,5,10,15,30,60,120,300,600,1800,3600];
   const interval=intervals.find(i=>i*pps>=60)||3600;
+  const useToD=tcMode==='tod'&&tcRecStart>0;
   let t=0;
   while(t<=dur+0.01){
     const m=document.createElement('div');
-    m.className='tcmark'; m.style.left=t2px(t)+'px'; m.textContent=hms(t);
+    m.className='tcmark'; m.style.left=t2px(t)+'px';
+    if(useToD){ const d=new Date(tcRecStart+t*1000); m.textContent=`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; }
+    else{ m.textContent=hms(t); }
     ruler.appendChild(m);
     t+=interval;
   }
