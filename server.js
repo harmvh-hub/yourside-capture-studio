@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION_NUM = '2.16.4';
+const VERSION_NUM = '2.16.5';
 const GODS = ['Zeus','Hera','Athena','Apollo','Artemis','Ares','Aphrodite','Hermes','Hephaestus','Poseidon','Demeter','Dionysus','Hades','Persephone','Hestia','Eos','Helios','Selene','Nike','Tyche','Nemesis','Iris','Eris','Morpheus','Hypnos','Eros','Pan','Proteus','Triton','Nyx'];
 const VERSION = `${VERSION_NUM} (${GODS[Math.floor(Math.random()*GODS.length)]})`;
 const PORT           = process.env.PORT           || 3000;
@@ -441,7 +441,7 @@ const server = http.createServer(async(req,res)=>{
     const frameId=uuid();
     const frameFile=path.join(EXPORTS_DIR,`frame_${frameId}.png`);
     const args=['-y','-ss',String(timestamp),'-i',inputFile,'-vframes','1'];
-    if(vf)args.push('-vf',vf);
+    args.push('-vf', vf?`yadif=deint=interlaced,${vf}`:'yadif=deint=interlaced');
     args.push(frameFile);
     try{await new Promise((ok,fail)=>execFile('ffmpeg',args,err=>err?fail(err):ok()));}
     catch(e){return jres(res,500,{error:'Frame extraction failed: '+e.message});}
@@ -516,7 +516,7 @@ const server = http.createServer(async(req,res)=>{
 
     function spawnFfmpeg(args){ return new Promise((ok,fail)=>{ const proc=spawn('ffmpeg',args); sess.proc=proc; trackProgress(proc); proc.on('close',code=>code===0?ok():fail(new Error(`ffmpeg exit ${code}`))); proc.on('error',fail); }); }
 
-    const videoFilter = vf ? `${vf},setpts=PTS-STARTPTS` : 'setpts=PTS-STARTPTS';
+    const videoFilter = vf ? `yadif=deint=interlaced,${vf},setpts=PTS-STARTPTS` : 'yadif=deint=interlaced,setpts=PTS-STARTPTS';
     const encodeArgs  = ['-c:v','libx264','-preset','fast','-crf','20','-c:a','aac','-b:a','192k','-ac','2','-ar','48000','-movflags','+faststart'];
 
     (async()=>{
@@ -632,7 +632,7 @@ const server = http.createServer(async(req,res)=>{
         if(ar==='9:16'){const cw=even(Math.floor(sh*9/16));const cx=even(Math.floor((sw-cw)*cropX));vf=`crop=${cw}:${sh}:${cx}:0,scale=1080:1920`;}
         else if(ar==='1:1'){const sq=even(Math.min(sw,sh));const cx=even(Math.floor((sw-sq)/2));const cy=even(Math.floor((sh-sq)/2));vf=`crop=${sq}:${sq}:${cx}:${cy},scale=1080:1080`;}
         else if(ar==='16:9'){vf=`scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black`;}
-        const vFilter=vf?`${vf},setpts=PTS-STARTPTS`:'setpts=PTS-STARTPTS';
+        const vFilter=vf?`yadif=deint=interlaced,${vf},setpts=PTS-STARTPTS`:'yadif=deint=interlaced,setpts=PTS-STARTPTS';
         const encArgs=['-c:v','libx264','-preset','fast','-crf','20','-c:a','aac','-b:a','192k','-ac','2','-ar','48000','-movflags','+faststart'];
         const spawnP=args=>new Promise((ok,fail)=>{const pr=spawn('ffmpeg',args);sess.proc=pr;pr.stderr.on('data',d=>{const m=d.toString().match(/time=(\d+):(\d+):(\d+\.\d+)/);if(m){const s2=parseInt(m[1])*3600+parseInt(m[2])*60+parseFloat(m[3]);sess.progress=Math.min(98,Math.round((s2/duration)*100));}});pr.on('close',c=>c===0?ok():fail(new Error('ffmpeg exit '+c)));pr.on('error',fail);});
         try{
