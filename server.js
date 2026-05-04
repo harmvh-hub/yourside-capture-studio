@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION_NUM = '2.16.9';
+const VERSION_NUM = '2.16.10';
 const GODS = ['Zeus','Hera','Athena','Apollo','Artemis','Ares','Aphrodite','Hermes','Hephaestus','Poseidon','Demeter','Dionysus','Hades','Persephone','Hestia','Eos','Helios','Selene','Nike','Tyche','Nemesis','Iris','Eris','Morpheus','Hypnos','Eros','Pan','Proteus','Triton','Nyx'];
 const VERSION = `${VERSION_NUM} (${GODS[Math.floor(Math.random()*GODS.length)]})`;
 const PORT           = process.env.PORT           || 3000;
@@ -259,7 +259,9 @@ const server = http.createServer(async(req,res)=>{
     const u=getUser(req); if(!u)return jres(res,401,{error:'Unauthorised'});
     const fp=path.join(EXPORTS_DIR,path.basename(p)); if(!fs.existsSync(fp))return jres(res,404,{error:'Not found'});
     const stat=fs.statSync(fp);
-    res.writeHead(200,{'Content-Type':'video/mp4','Content-Length':stat.size,'Content-Disposition':`attachment; filename="${path.basename(fp)}"`, 'Access-Control-Allow-Origin':'*'});
+    const ext=path.extname(fp).toLowerCase();
+    const ct=ext==='.png'?'image/png':ext==='.jpg'||ext==='.jpeg'?'image/jpeg':'video/mp4';
+    res.writeHead(200,{'Content-Type':ct,'Content-Length':stat.size,'Content-Disposition':`attachment; filename="${path.basename(fp)}"`, 'Access-Control-Allow-Origin':'*'});
     return fs.createReadStream(fp).pipe(res);
   }
 

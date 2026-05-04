@@ -1493,7 +1493,9 @@ function renderSidebarClips(){
   el.innerHTML=sidebarClips.map(c=>{
     const isFrame=c.in_point===c.out_point;
     const meta=isFrame?`Still · ${hms(c.in_point)}`:`${hms(c.in_point)} – ${hms(c.out_point)} · ${hms(c.out_point-c.in_point)}`;
-    const dlBtn=isFrame&&c.export_file?`<a href="${c.export_file}" download onclick="event.stopPropagation()"><button class="ibtn g" title="Download PNG">↓</button></a>`:`<button class="ibtn g" title="Export" onclick="event.stopPropagation();exportClipDirect('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">↓</button>`;
+    const dlBtn=isFrame
+      ?(c.export_file?`<a href="${c.export_file}" download onclick="event.stopPropagation()"><button class="ibtn g" title="Download PNG">↓</button></a>`:'')
+      :`<button class="ibtn g" title="Export" onclick="event.stopPropagation();exportClipDirect('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">↓</button>`;
     return `<div class="clitem ${c.id===selectedClipId?'active':''}" id="sbclip-${c.id}"
          onclick="selectClip('${c.id}','${c.recording_id}',${c.in_point},${c.out_point})">
       <div class="clico">${isFrame?'🖼':'✂'}</div>
