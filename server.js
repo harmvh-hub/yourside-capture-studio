@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION_NUM = '2.16.7';
+const VERSION_NUM = '2.16.8';
 const GODS = ['Zeus','Hera','Athena','Apollo','Artemis','Ares','Aphrodite','Hermes','Hephaestus','Poseidon','Demeter','Dionysus','Hades','Persephone','Hestia','Eos','Helios','Selene','Nike','Tyche','Nemesis','Iris','Eris','Morpheus','Hypnos','Eros','Pan','Proteus','Triton','Nyx'];
 const VERSION = `${VERSION_NUM} (${GODS[Math.floor(Math.random()*GODS.length)]})`;
 const PORT           = process.env.PORT           || 3000;
@@ -177,13 +177,17 @@ function probeWaveform(fp,n=200){ return new Promise(ok=>{
   });
 });}
 
-function finaliseMp4(hlsDir, mp4File){ return new Promise((ok,fail)=>{
+function finaliseMp4(hlsDir, mp4File, sess){ return new Promise((ok,fail)=>{
   const m3u8=path.join(hlsDir,'stream.m3u8');
   if(!fs.existsSync(m3u8))return fail(new Error('m3u8 not found'));
-  const segs=fs.readFileSync(m3u8,'utf8').split('\n').filter(l=>l.trim()&&!l.startsWith('#')).map(l=>path.join(hlsDir,l.trim()));
+  const content=fs.readFileSync(m3u8,'utf8');
+  const segs=content.split('\n').filter(l=>l.trim()&&!l.startsWith('#')).map(l=>path.join(hlsDir,l.trim()));
   if(!segs.length)return fail(new Error('no segments'));
+  let totalDur=0;
+  for(const m of content.matchAll(/#EXTINF:([\d.]+)/g))totalDur+=parseFloat(m[1]);
   const cl=path.join(hlsDir,'concat.txt');
   fs.writeFileSync(cl,segs.map(s=>`file '${s}'`).join('\n'));
+  if(sess)sess.finaliseProgress=0;
   // aresample=async=1:first_pts=0 locks audio to video clock from the very first frame
   // This prevents the base recording from having any A/V offset baked in
   const p=spawn('ffmpeg',[
@@ -194,7 +198,13 @@ function finaliseMp4(hlsDir, mp4File){ return new Promise((ok,fail)=>{
     '-movflags','+faststart',
     mp4File
   ]);
-  p.on('close',c=>c===0?ok():fail(new Error(`ffmpeg exit ${c}`)));
+  if(sess&&totalDur>0){
+    p.stderr.on('data',d=>{
+      const m=d.toString().match(/time=(\d+):(\d+):(\d+\.\d+)/);
+      if(m){const secs=parseInt(m[1])*3600+parseInt(m[2])*60+parseFloat(m[3]);sess.finaliseProgress=Math.min(99,Math.round(secs/totalDur*100));}
+    });
+  }
+  p.on('close',c=>{if(sess)sess.finaliseProgress=100;c===0?ok():fail(new Error(`ffmpeg exit ${c}`));});
   p.on('error',fail);
 });}
 
@@ -330,8 +340,8 @@ const server = http.createServer(async(req,res)=>{
     const accessPids=au.role==='admin'?null:db.prepare('SELECT project_id FROM project_members WHERE user_id=?').all(au.user_id).map(r=>r.project_id);
     const canSee=pid=>{ if(accessPids!==null&&pid&&!accessPids.includes(pid))return false; if(filterPid&&pid!==filterPid)return false; return true; };
     const mp4s=fs.existsSync(RECORDINGS_DIR)?fs.readdirSync(RECORDINGS_DIR).filter(f=>f.endsWith('.mp4')):[];
-    const results=mp4s.map(f=>{ const id=f.replace('.mp4',''),fp=path.join(RECORDINGS_DIR,f),stat=fs.statSync(fp),s=sessions.get(id),rec=db.prepare('SELECT * FROM recordings WHERE id=?').get(id); const pid=rec?.project_id||s?.projectId||null; if(!canSee(pid))return null; return{id,name:rec?rec.name:'',size:stat.size,created:stat.birthtime,status:s?s.status:'ready',live:false,projectId:pid}; }).filter(Boolean);
-    for(const[id,s]of sessions.entries()){ if((s.status==='recording'||s.status==='stopping'||s.status==='finalising')&&!results.find(r=>r.id===id)){ if(!canSee(s.projectId))continue; const rec=db.prepare('SELECT * FROM recordings WHERE id=?').get(id); results.push({id,name:rec?rec.name:'',size:0,created:new Date(s.startTime),status:s.status,live:s.status==='recording',projectId:s.projectId}); } }
+    const results=mp4s.map(f=>{ const id=f.replace('.mp4',''),fp=path.join(RECORDINGS_DIR,f),stat=fs.statSync(fp),s=sessions.get(id),rec=db.prepare('SELECT * FROM recordings WHERE id=?').get(id); const pid=rec?.project_id||s?.projectId||null; if(!canSee(pid))return null; return{id,name:rec?rec.name:'',size:stat.size,created:stat.birthtime,status:s?s.status:'ready',live:false,projectId:pid,finaliseProgress:s?.finaliseProgress??null}; }).filter(Boolean);
+    for(const[id,s]of sessions.entries()){ if((s.status==='recording'||s.status==='stopping'||s.status==='finalising')&&!results.find(r=>r.id===id)){ if(!canSee(s.projectId))continue; const rec=db.prepare('SELECT * FROM recordings WHERE id=?').get(id); results.push({id,name:rec?rec.name:'',size:0,created:new Date(s.startTime),status:s.status,live:s.status==='recording',projectId:s.projectId,finaliseProgress:s.finaliseProgress??null}); } }
     return jres(res,200,{recordings:results.sort((a,b)=>new Date(b.created)-new Date(a.created))});
   }
   if(req.method==='PUT'&&p.startsWith('/api/recordings/')){ const id=p.replace('/api/recordings/',''); const{name}=await parseBody(req); db.prepare("INSERT INTO recordings (id,name) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name").run(id,name||''); return jres(res,200,{ok:true}); }
@@ -423,7 +433,7 @@ const server = http.createServer(async(req,res)=>{
       const fp=t.match(/fps=\s*([\d.]+)/); if(fp) s.stats.fps=parseFloat(fp[1]);
     });
     proc.on('error',err=>{ const s=sessions.get(id); if(s){s.status='error';s.error=err.message;} });
-    proc.on('close',async code=>{ const s=sessions.get(id); if(!s)return; if(s.relay){try{s.relay.kill('SIGTERM');}catch{} s.relay=null;} if(s.status==='stopping'){s.status='finalising'; try{await finaliseMp4(hlsDir,mp4File);s.status='ready';}catch(e){s.status='error';s.error=e.message;} }else{s.status=code===0?'ready':'error';} s.proc=null; });
+    proc.on('close',async code=>{ const s=sessions.get(id); if(!s)return; if(s.relay){try{s.relay.kill('SIGTERM');}catch{} s.relay=null;} if(s.status==='stopping'){s.status='finalising'; try{await finaliseMp4(hlsDir,mp4File,s);s.status='ready';}catch(e){s.status='error';s.error=e.message;} }else{s.status=code===0?'ready':'error';} s.proc=null; });
     try{ await waitHls(hlsDir,30000); const s=sessions.get(id); if(s)s.hlsReady=true; return jres(res,200,{id,status:'recording',hlsUrl:`/hls/${id}/stream.m3u8`,hlsReady:true}); }
     catch(e){ const s=sessions.get(id); if(s){s.status='error';s.error='Stream did not start';} return jres(res,500,{error:'Stream did not start. Check SRT URL and source.'}); }
   }

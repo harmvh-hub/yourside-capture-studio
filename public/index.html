@@ -1144,7 +1144,7 @@ async function loadRecs(){
       <div class="rinfo">
         <div class="rname">${r.name||r.id.slice(0,10)+'…'}</div>
         <div class="rmeta">${r.size?fsz(r.size)+' · ':''}${new Date(r.created).toLocaleTimeString()}</div>
-        <span class="badge ${r.status}">${r.status}</span>
+        <span class="badge ${r.status}">${r.status==='finalising'&&r.finaliseProgress!=null?`finalising ${r.finaliseProgress}%`:r.status}</span>
       </div>
       <div class="ractions">
         ${r.status==='recording'?`<button class="ibtn stop" title="Stop recording" onclick="event.stopPropagation();stopRec()">⏹</button>`:''}
@@ -1205,7 +1205,9 @@ async function stopRec(){
   const poll=setInterval(async()=>{
     const d=await api('GET','/api/recordings');
     const r=(d.recordings||[]).find(r=>r.id===id);
-    if(r&&r.status==='ready'){ clearInterval(poll); setStatus('idle'); toast('Saved','ok'); loadRecs(); if(activeRecId===id) selRec(id,false); }
+    if(r?.status==='finalising'&&r.finaliseProgress!=null) setStatus(`finalising ${r.finaliseProgress}%`);
+    loadRecs();
+    if(!r||r.status==='ready'){ clearInterval(poll); setStatus('idle'); toast('Saved','ok'); if(activeRecId===id) selRec(id,false); }
   },1500);
 }
 
