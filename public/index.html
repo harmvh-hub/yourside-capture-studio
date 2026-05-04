@@ -914,7 +914,7 @@ async function loadStorageView(){
       <div style="flex:1;min-width:0">
         <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name||r.id.slice(0,12)+'…'}</div>
         <div style="font-size:12px;color:var(--text3);font-family:var(--mono)">${fsz(r.size)} · ${new Date(r.created).toLocaleDateString()} · ${r.clipCount} clip${r.clipCount!==1?'s':''}</div>
-        ${r.clipCount>0?`<div style="font-size:11px;color:var(--amber);font-family:var(--mono);margin-top:2px">⚠ has saved clips</div>`:''}
+        ${r.clipCount>0?`<div style="font-size:11px;color:var(--amber);font-family:var(--mono);margin-top:2px">⚠ has saved assets</div>`:''}
       </div>
       <div style="display:flex;gap:4px;flex-shrink:0">
         <span class="badge ${r.status}">${r.status}</span>
@@ -927,7 +927,7 @@ async function loadStorageView(){
 function forceDeleteRec(id,name,clipCount){
   _delRecId=id; _delRecForce=true;
   let msg=`Force delete recording "${name}"?`;
-  if(clipCount>0) msg+=`\n\n⚠ This recording has ${clipCount} saved clip${clipCount!==1?'s':''}. The clips will remain in the database but their source material will be gone.`;
+  if(clipCount>0) msg+=`\n\n⚠ This recording has ${clipCount} saved asset${clipCount!==1?'s':''}. The assets will remain in the database but their source material will be gone.`;
   document.getElementById('delRecMsg').textContent=msg;
   document.getElementById('delRecModal').classList.add('show');
 }
@@ -1447,7 +1447,7 @@ vid.addEventListener('click',()=>togglePlay());
 function togglePlay(){const b=document.getElementById('pbtn');if(vid.paused){vid.play();b.textContent='⏸';}else{vid.pause();b.textContent='▶';}}
 function toggleMute(){vid.muted=!vid.muted;document.getElementById('mbtn').textContent=vid.muted?'🔇':'🔊';}
 function openFrameExport(){
-  if(!activeRecId||vid.readyState<2){toast('No video loaded','err');return;}
+  if(!activeRecId){toast('No recording selected','err');return;}
   exportMode='frame'; exportAR='16:9'; cropX=0.5;
   document.getElementById('exTitle').textContent='Export Frame';
   document.getElementById('exRange').textContent=`Frame at ${hms(vid.currentTime)}`;
@@ -1537,7 +1537,7 @@ function renderAllClips(){
         ${c.export_file?`<a href="${c.export_file}" download><button class="ibtn" title="Download exported">⬇</button></a>`:''}
         <button class="ibtn d" title="Delete" onclick="delClip('${c.id}','${c.name.replace(/'/g,"\\'")}')">🗑</button>
       </div>
-    </div>`).join(''):'<div class="empty" style="padding:20px 0">No saved clips</div>';
+    </div>`).join(''):'<div class="empty" style="padding:20px 0">No saved assets</div>';
 }
 function getSelectedClipIds(){ return _allClips.filter(c=>document.getElementById('cb-'+c.id)?.checked).map(c=>c.id); }
 function onBatchCbChange(){ document.getElementById('batchExpBtn').disabled=getSelectedClipIds().length===0; }
