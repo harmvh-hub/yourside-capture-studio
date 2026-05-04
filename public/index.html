@@ -563,6 +563,14 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
       <div class="fg"><label>Video kbps</label><input id="ep_vbr" type="number"></div>
       <div class="fg"><label>Audio kbps</label><input id="ep_abr" type="number"></div>
     </div>
+    <div id="epMembersSection" style="display:none">
+      <div class="fsec" style="margin-top:14px">Members</div>
+      <div id="epMemberList" style="margin-bottom:8px"></div>
+      <div class="frow" style="gap:6px">
+        <select id="epAddUserSel" style="flex:1"></select>
+        <button class="btn bprimary bsm" onclick="addProjMember()">+ Add</button>
+      </div>
+    </div>
     <div class="frow" style="margin-top:12px">
       <button class="btn bghost bfull" onclick="closeModal('editProjModal')">Cancel</button>
       <button class="btn bprimary bfull" onclick="saveEditProject()">Save</button>
@@ -848,7 +856,7 @@ function togglePanel(id){
     el.classList.add('show');
     document.getElementById('btn'+id[0].toUpperCase()+id.slice(1))?.classList.add('on');
     if(id==='projects') renderProjList();
-    if(id==='clips'){ loadAllClips(); fillClipFilter(); }
+    if(id==='clips'){ fillClipFilter(); const pf=document.getElementById('clipProjFilter'); if(pf&&activeProject) pf.value=activeProject.id; loadAllClips(); }
     if(id==='users') loadUsers();
     if(id==='settings'){ fillSettingsForm(); loadStorageView(); }
   }
@@ -963,7 +971,12 @@ function updateProjCard(){
   document.getElementById('pcName').textContent=p.name;
   document.getElementById('pcSrt').textContent=p.srt_url?`${p.srt_url} · ${p.srt_mode} · ${p.srt_latency}ms`:'⚠ No SRT URL — click ✏ to configure';
 }
-function onProjChange(){ updateProjCard(); }
+function onProjChange(){
+  updateProjCard();
+  activeRecId=null;
+  loadRecs();
+  loadSidebarClips();
+}
 async function createProj(){
   const name=document.getElementById('pn').value.trim(); if(!name){toast('Enter a name','err');return}
   const b={name,description:document.getElementById('pd').value,srt_url:document.getElementById('p_url').value,srt_mode:document.getElementById('p_mode').value,srt_latency:document.getElementById('p_latency').value,srt_passphrase:document.getElementById('p_passphrase').value,srt_streamid:document.getElementById('p_streamid').value,video_bitrate:document.getElementById('p_vbr').value||'4000',audio_bitrate:document.getElementById('p_abr').value||'128'};
@@ -986,8 +999,31 @@ function editProjectById(id){
   document.getElementById('ep_streamid').value=p.srt_streamid||'';
   document.getElementById('ep_vbr').value=p.video_bitrate||'4000';
   document.getElementById('ep_abr').value=p.audio_bitrate||'128';
+  const ms=document.getElementById('epMembersSection');
+  if(me&&me.role==='admin'){ ms.style.display=''; loadProjMembers(id); } else ms.style.display='none';
   document.getElementById('editProjModal').classList.add('show');
   closePanel('projects');
+}
+async function loadProjMembers(projId){
+  const [dm,du]=await Promise.all([api('GET','/api/projects/'+projId+'/members'),api('GET','/api/users')]);
+  const members=dm.members||[], allUsers=du.users||[];
+  const memberIds=new Set(members.map(m=>m.id));
+  document.getElementById('epMemberList').innerHTML=members.length
+    ?members.map(m=>`<div class="frow" style="justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)"><span style="font-size:13px">${m.username} <span style="color:var(--text3);font-size:11px">${m.role}</span></span><button class="ibtn d" onclick="removeProjMember('${projId}','${m.id}')">✕</button></div>`).join('')
+    :'<div style="font-size:12px;color:var(--text3);padding:4px 0">No members yet</div>';
+  const sel=document.getElementById('epAddUserSel');
+  sel.innerHTML=allUsers.filter(u=>!memberIds.has(u.id)).map(u=>`<option value="${u.id}">${u.username}</option>`).join('');
+  if(!sel.options.length) sel.innerHTML='<option value="">— all users added —</option>';
+}
+async function addProjMember(){
+  const projId=document.getElementById('ep_id').value;
+  const userId=document.getElementById('epAddUserSel').value; if(!userId)return;
+  await api('POST','/api/projects/'+projId+'/members',{userId});
+  loadProjMembers(projId);
+}
+async function removeProjMember(projId,userId){
+  await api('DELETE','/api/projects/'+projId+'/members/'+userId);
+  loadProjMembers(projId);
 }
 async function saveEditProject(){
   const id=document.getElementById('ep_id').value;
@@ -1092,7 +1128,8 @@ async function refreshStats(){
 
 // ── RECORDINGS ─────────────────────────────────────────────────────────────
 async function loadRecs(){
-  const d=await api('GET','/api/recordings'); const recs=d.recordings||[];
+  const pid=activeProject?.id||'';
+  const d=await api('GET','/api/recordings'+(pid?'?project_id='+pid:'')); const recs=d.recordings||[];
   const el=document.getElementById('recList');
   if(!recs.length){ el.innerHTML='<div class="empty"><div class="eico">📼</div><p>No recordings yet</p></div>'; return; }
   el.innerHTML=recs.map(r=>`
@@ -1413,7 +1450,8 @@ window.addEventListener('resize',()=>{ if(dur){buildBars();buildRuler();updateMk
 // ── CLIPS ──────────────────────────────────────────────────────────────────
 async function loadSidebarClips(){
   if(!activeRecId){ sidebarClips=[]; renderSidebarClips(); return; }
-  const d=await api('GET','/api/clips?recording_id='+activeRecId);
+  const pid=activeProject?.id||'';
+  const d=await api('GET','/api/clips?recording_id='+activeRecId+(pid?'&project_id='+pid:''));
   sidebarClips=d.clips||[];
   renderSidebarClips(); renderClipOverlays();
 }
@@ -1439,7 +1477,9 @@ function renderSidebarClips(){
 
 let _allClips=[];
 async function loadAllClips(){
-  const pid=document.getElementById('clipProjFilter')?.value||'';
+  const pf=document.getElementById('clipProjFilter');
+  if(pf&&activeProject&&!pf.value) pf.value=activeProject.id;
+  const pid=pf?.value||'';
   const d=await api('GET','/api/clips'+(pid?'?project_id='+pid:''));
   const el=document.getElementById('allClipsList'); if(!el)return;
   _allClips=d.clips||[];

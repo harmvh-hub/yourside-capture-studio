@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION_NUM = '2.15.6';
+const VERSION_NUM = '2.16.0';
 const GODS = ['Zeus','Hera','Athena','Apollo','Artemis','Ares','Aphrodite','Hermes','Hephaestus','Poseidon','Demeter','Dionysus','Hades','Persephone','Hestia','Eos','Helios','Selene','Nike','Tyche','Nemesis','Iris','Eris','Morpheus','Hypnos','Eros','Pan','Proteus','Triton','Nyx'];
 const VERSION = `${VERSION_NUM} (${GODS[Math.floor(Math.random()*GODS.length)]})`;
 const PORT           = process.env.PORT           || 3000;
@@ -54,6 +54,10 @@ db.exec(`
     export_file TEXT, notes TEXT,
     created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
   );
+  CREATE TABLE IF NOT EXISTS project_members (
+    project_id TEXT NOT NULL, user_id TEXT NOT NULL,
+    PRIMARY KEY (project_id, user_id)
+  );
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY, value TEXT NOT NULL
   );
@@ -75,6 +79,10 @@ for(const [c,d] of Object.entries(pnew)) if(!pcols.includes(c)) db.exec(`ALTER T
 const ucols = db.prepare("PRAGMA table_info(users)").all().map(c=>c.name);
 const unew  = {email:"TEXT DEFAULT ''", totp_secret:"TEXT DEFAULT ''", mfa_enabled:"INTEGER DEFAULT 0"};
 for(const [c,d] of Object.entries(unew)) if(!ucols.includes(c)) db.exec(`ALTER TABLE users ADD COLUMN ${c} ${d}`);
+
+// Migrate: seed project_members from existing project creators
+for(const {id,user_id} of db.prepare('SELECT id,user_id FROM projects').all())
+  db.prepare('INSERT OR IGNORE INTO project_members (project_id,user_id) VALUES (?,?)').run(id,user_id);
 
 if(db.prepare('SELECT COUNT(*) as c FROM users').get().c===0){
   db.prepare("INSERT INTO users (id,username,password_hash,role) VALUES (?,?,?,'admin')").run(uuid(),'admin',hashPw('admin'));
@@ -288,22 +296,46 @@ const server = http.createServer(async(req,res)=>{
   if(req.method==='DELETE'&&p.startsWith('/api/users/')){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); const id=p.replace('/api/users/',''); db.prepare('DELETE FROM users WHERE id=?').run(id); db.prepare('DELETE FROM sessions WHERE user_id=?').run(id); return jres(res,200,{deleted:true}); }
 
   // Projects
-  if(req.method==='GET'&&p==='/api/projects'){ const rows=au.role==='admin'?db.prepare('SELECT p.*,u.username FROM projects p JOIN users u ON u.id=p.user_id ORDER BY p.created_at DESC').all():db.prepare('SELECT p.*,u.username FROM projects p JOIN users u ON u.id=p.user_id WHERE p.user_id=? ORDER BY p.created_at DESC').all(au.user_id); return jres(res,200,{projects:rows}); }
-  if(req.method==='POST'&&p==='/api/projects'){ const b=await parseBody(req); if(!b.name)return jres(res,400,{error:'Name required'}); const id=uuid(); db.prepare('INSERT INTO projects (id,name,description,user_id,srt_url,srt_mode,srt_latency,srt_passphrase,srt_streamid,video_bitrate,audio_bitrate) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(id,b.name,b.description||'',au.user_id,b.srt_url||'',b.srt_mode||'caller',b.srt_latency||'200',b.srt_passphrase||'',b.srt_streamid||'',b.video_bitrate||'4000',b.audio_bitrate||'128'); return jres(res,200,{id,name:b.name}); }
+  if(req.method==='GET'&&p==='/api/projects'){ const rows=au.role==='admin'?db.prepare('SELECT p.*,u.username FROM projects p JOIN users u ON u.id=p.user_id ORDER BY p.created_at DESC').all():db.prepare('SELECT p.*,u.username FROM projects p JOIN users u ON u.id=p.user_id WHERE p.id IN (SELECT project_id FROM project_members WHERE user_id=?) ORDER BY p.created_at DESC').all(au.user_id); return jres(res,200,{projects:rows}); }
+  if(req.method==='POST'&&p==='/api/projects'){ const b=await parseBody(req); if(!b.name)return jres(res,400,{error:'Name required'}); const id=uuid(); db.prepare('INSERT INTO projects (id,name,description,user_id,srt_url,srt_mode,srt_latency,srt_passphrase,srt_streamid,video_bitrate,audio_bitrate) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(id,b.name,b.description||'',au.user_id,b.srt_url||'',b.srt_mode||'caller',b.srt_latency||'200',b.srt_passphrase||'',b.srt_streamid||'',b.video_bitrate||'4000',b.audio_bitrate||'128'); db.prepare('INSERT OR IGNORE INTO project_members (project_id,user_id) VALUES (?,?)').run(id,au.user_id); return jres(res,200,{id,name:b.name}); }
+  // Project members (must come before generic /api/projects/:id routes)
+  if(p.match(/^\/api\/projects\/[^/]+\/members$/)){
+    const projId=p.split('/')[3];
+    if(au.role!=='admin')return jres(res,403,{error:'Admin only'});
+    if(req.method==='GET'){ return jres(res,200,{members:db.prepare('SELECT u.id,u.username,u.role FROM project_members pm JOIN users u ON u.id=pm.user_id WHERE pm.project_id=?').all(projId)}); }
+    if(req.method==='POST'){ const{userId}=await parseBody(req); db.prepare('INSERT OR IGNORE INTO project_members (project_id,user_id) VALUES (?,?)').run(projId,userId); return jres(res,200,{ok:true}); }
+  }
+  if(req.method==='DELETE'&&p.match(/^\/api\/projects\/[^/]+\/members\/[^/]+$/)){
+    if(au.role!=='admin')return jres(res,403,{error:'Admin only'});
+    const parts=p.split('/'); db.prepare('DELETE FROM project_members WHERE project_id=? AND user_id=?').run(parts[3],parts[5]); return jres(res,200,{deleted:true});
+  }
   if(req.method==='PUT'&&p.startsWith('/api/projects/')){ const id=p.replace('/api/projects/',''); const b=await parseBody(req); db.prepare('UPDATE projects SET name=?,description=?,srt_url=?,srt_mode=?,srt_latency=?,srt_passphrase=?,srt_streamid=?,video_bitrate=?,audio_bitrate=? WHERE id=?').run(b.name,b.description||'',b.srt_url||'',b.srt_mode||'caller',b.srt_latency||'200',b.srt_passphrase||'',b.srt_streamid||'',b.video_bitrate||'4000',b.audio_bitrate||'128',id); return jres(res,200,{ok:true}); }
-  if(req.method==='DELETE'&&p.startsWith('/api/projects/')){ db.prepare('DELETE FROM projects WHERE id=?').run(p.replace('/api/projects/','')); return jres(res,200,{deleted:true}); }
+  if(req.method==='DELETE'&&p.startsWith('/api/projects/')){ const id=p.replace('/api/projects/',''); db.prepare('DELETE FROM projects WHERE id=?').run(id); db.prepare('DELETE FROM project_members WHERE project_id=?').run(id); return jres(res,200,{deleted:true}); }
 
   // Recordings (with name support)
   if(req.method==='GET'&&p==='/api/recordings'){
+    const filterPid=url.searchParams.get('project_id')||null;
+    const accessPids=au.role==='admin'?null:db.prepare('SELECT project_id FROM project_members WHERE user_id=?').all(au.user_id).map(r=>r.project_id);
+    const canSee=pid=>{ if(accessPids!==null&&pid&&!accessPids.includes(pid))return false; if(filterPid&&pid!==filterPid)return false; return true; };
     const mp4s=fs.existsSync(RECORDINGS_DIR)?fs.readdirSync(RECORDINGS_DIR).filter(f=>f.endsWith('.mp4')):[];
-    const results=mp4s.map(f=>{ const id=f.replace('.mp4',''),fp=path.join(RECORDINGS_DIR,f),stat=fs.statSync(fp),s=sessions.get(id),rec=db.prepare('SELECT * FROM recordings WHERE id=?').get(id); return{id,name:rec?rec.name:'',size:stat.size,created:stat.birthtime,status:s?s.status:'ready',live:false,projectId:s?s.projectId:null}; });
-    for(const[id,s]of sessions.entries()){ if((s.status==='recording'||s.status==='stopping'||s.status==='finalising')&&!results.find(r=>r.id===id)){ const rec=db.prepare('SELECT * FROM recordings WHERE id=?').get(id); results.push({id,name:rec?rec.name:'',size:0,created:new Date(s.startTime),status:s.status,live:s.status==='recording',projectId:s.projectId}); } }
+    const results=mp4s.map(f=>{ const id=f.replace('.mp4',''),fp=path.join(RECORDINGS_DIR,f),stat=fs.statSync(fp),s=sessions.get(id),rec=db.prepare('SELECT * FROM recordings WHERE id=?').get(id); const pid=rec?.project_id||s?.projectId||null; if(!canSee(pid))return null; return{id,name:rec?rec.name:'',size:stat.size,created:stat.birthtime,status:s?s.status:'ready',live:false,projectId:pid}; }).filter(Boolean);
+    for(const[id,s]of sessions.entries()){ if((s.status==='recording'||s.status==='stopping'||s.status==='finalising')&&!results.find(r=>r.id===id)){ if(!canSee(s.projectId))continue; const rec=db.prepare('SELECT * FROM recordings WHERE id=?').get(id); results.push({id,name:rec?rec.name:'',size:0,created:new Date(s.startTime),status:s.status,live:s.status==='recording',projectId:s.projectId}); } }
     return jres(res,200,{recordings:results.sort((a,b)=>new Date(b.created)-new Date(a.created))});
   }
   if(req.method==='PUT'&&p.startsWith('/api/recordings/')){ const id=p.replace('/api/recordings/',''); const{name}=await parseBody(req); db.prepare("INSERT INTO recordings (id,name) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name").run(id,name||''); return jres(res,200,{ok:true}); }
 
   // Clips
-  if(req.method==='GET'&&p==='/api/clips'){ const pid=url.searchParams.get('project_id'),rid=url.searchParams.get('recording_id'); let q='SELECT * FROM clips'; const args=[]; if(rid){q+=' WHERE recording_id=?';args.push(rid);}else if(pid){q+=' WHERE project_id=?';args.push(pid);} q+=' ORDER BY created_at DESC'; return jres(res,200,{clips:db.prepare(q).all(...args)}); }
+  if(req.method==='GET'&&p==='/api/clips'){
+    const pid=url.searchParams.get('project_id'),rid=url.searchParams.get('recording_id');
+    const accessPids=au.role==='admin'?null:db.prepare('SELECT project_id FROM project_members WHERE user_id=?').all(au.user_id).map(r=>r.project_id);
+    if(accessPids!==null&&accessPids.length===0)return jres(res,200,{clips:[]});
+    const conds=[],args=[];
+    if(rid){conds.push('recording_id=?');args.push(rid);}
+    if(pid){conds.push('project_id=?');args.push(pid);}
+    if(accessPids!==null){conds.push(`project_id IN (${accessPids.map(()=>'?').join(',')})`);args.push(...accessPids);}
+    const q='SELECT * FROM clips'+(conds.length?' WHERE '+conds.join(' AND '):'')+' ORDER BY created_at DESC';
+    return jres(res,200,{clips:db.prepare(q).all(...args)});
+  }
   if(req.method==='POST'&&p==='/api/clips'){ const{name,project_id,recording_id,in_point,out_point,notes}=await parseBody(req); if(!name||!recording_id||in_point==null||out_point==null)return jres(res,400,{error:'Missing fields'}); const id=uuid(); db.prepare('INSERT INTO clips (id,name,project_id,recording_id,in_point,out_point,notes) VALUES (?,?,?,?,?,?,?)').run(id,name,project_id||null,recording_id,in_point,out_point,notes||''); return jres(res,200,{id,name}); }
   if(req.method==='PUT'&&p.startsWith('/api/clips/')){ const id=p.replace('/api/clips/',''); const{name,project_id,in_point,out_point,notes,export_file}=await parseBody(req); db.prepare("UPDATE clips SET name=?,project_id=?,in_point=?,out_point=?,notes=?,export_file=?,updated_at=datetime('now') WHERE id=?").run(name,project_id||null,in_point,out_point,notes||'',export_file||null,id); return jres(res,200,{ok:true}); }
   if(req.method==='DELETE'&&p.startsWith('/api/clips/')){ db.prepare('DELETE FROM clips WHERE id=?').run(p.replace('/api/clips/','')); return jres(res,200,{deleted:true}); }
