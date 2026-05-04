@@ -730,7 +730,7 @@ let activeRecId=null, activeSessId=null, activeProject=null;
 let isLive=false, dur=0, inPt=0, outPt=0, outPtAuto=true;
 let tcMode='tod'; // 'tod' = time-of-day, 'zero' = elapsed from recording start
 let tcRecStart=0; // wall-clock ms when live recording was selected
-let zoom=1, drag=null, hls=null;
+let zoom=1, basePPS=null, drag=null, hls=null;
 let expPoll=null, refreshInt=null, liveInt=null;
 let lastExpUrl=null, editClipId=null, selectedClipId=null;
 let sidebarClips=[];
@@ -1209,14 +1209,14 @@ async function selRec(id,live){
       hls.on(Hls.Events.MANIFEST_PARSED,()=>{ vid.currentTime=0; vid.play(); });
       hls.on(Hls.Events.FRAG_LOADED,(e,data)=>{
         const nd=data.frag.start+data.frag.duration;
-        if(nd>dur){ dur=nd; if(outPtAuto)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); document.getElementById('liveprog').style.width='100%'; renderClipOverlays(); }
+        if(nd>dur){ dur=nd; if(outPtAuto)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); document.getElementById('liveprog').style.width='100%'; renderClipOverlays(); scrollToLiveEnd(); }
       });
-      hls.on(Hls.Events.LEVEL_UPDATED,(e,data)=>{ const nd=data.details?.totalduration||0; if(nd>dur){ dur=nd; if(outPtAuto)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); } });
+      hls.on(Hls.Events.LEVEL_UPDATED,(e,data)=>{ const nd=data.details?.totalduration||0; if(nd>dur){ dur=nd; if(outPtAuto)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); scrollToLiveEnd(); } });
       hls.on(Hls.Events.ERROR,(e,data)=>{ if(data.fatal)console.warn('HLS',data.type,data.details); });
     } else if(vid.canPlayType('application/vnd.apple.mpegurl')){
       vid.src=hlsUrl; vid.currentTime=0; vid.play();
     }
-    dur=0; inPt=0; outPt=0; outPtAuto=true; zoom=1;
+    dur=0; inPt=0; outPt=0; outPtAuto=true; zoom=1; basePPS=null;
     tcRecStart=Date.now();
     requestAnimationFrame(()=>{ buildBars(); buildRuler(); updateMk(); updPt(); });
     document.getElementById('liveprog').style.width='0%';
@@ -1225,7 +1225,7 @@ async function selRec(id,live){
     // Fallback server poll for duration
     liveInt=setInterval(async()=>{
       const d=await api('GET','/api/probe/'+id);
-      if(d.duration&&d.duration>dur){ dur=d.duration; if(outPtAuto)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); }
+      if(d.duration&&d.duration>dur){ dur=d.duration; if(outPtAuto)outPt=dur; buildBars(); buildRuler(); updateMk(); updPt(); renderClipOverlays(); scrollToLiveEnd(); }
       const sd=await api('GET','/api/srt-stats/'+id);
       if(sd.live){ const fps=(sd.stats||{}).fps; const fb=document.getElementById('fpsbadge'); if(fps!=null){fb.textContent=fps.toFixed(1)+' fps';fb.style.display='';}else{fb.style.display='none';} }
     },3000);
@@ -1236,7 +1236,7 @@ async function selRec(id,live){
     document.getElementById('tcdis').textContent=smtc(0);
     document.getElementById('tcov').textContent=smtc(0);
     const d=await api('GET','/api/probe/'+id);
-    dur=d.duration||0; inPt=0; outPt=dur; zoom=1;
+    dur=d.duration||0; inPt=0; outPt=dur; zoom=1; basePPS=null;
     if(d.created) tcRecStart=d.created;
     const initTc=livPausedTC();
     document.getElementById('tcdis').textContent=initTc;
@@ -1249,7 +1249,12 @@ async function selRec(id,live){
 }
 
 // ── TIMELINE ───────────────────────────────────────────────────────────────
-function getPPS(){ const sc=document.getElementById('tlscroll'); return dur>0?(sc.clientWidth||800)*zoom/dur:1; }
+function getPPS(){
+  const sc=document.getElementById('tlscroll'); const w=sc.clientWidth||800;
+  if(!dur) return 1;
+  if(basePPS===null) basePPS=w/(isLive?Math.max(dur,120):dur);
+  return basePPS*zoom;
+}
 function t2px(t){ return t*getPPS(); }
 function px2t(px){ return px/getPPS(); }
 function getEventTime(e){ const sc=document.getElementById('tlscroll'); const rect=sc.getBoundingClientRect(); return Math.max(0,Math.min(dur,px2t(e.clientX-rect.left+sc.scrollLeft))); }
@@ -1304,13 +1309,21 @@ function zIn(){
   }
 }
 function zOut(){
-  if(zoom>1){
+  if(dur&&basePPS!=null){
     const sc=document.getElementById('tlscroll');
+    const minZoom=Math.max(0.125,(sc.clientWidth||800)/(basePPS*dur));
+    if(zoom<=minZoom) return;
     const cT=px2t(sc.scrollLeft+sc.clientWidth/2);
-    zoom=Math.max(1,zoom/2); document.getElementById('zval').textContent=zoom+'×';
+    zoom=Math.max(minZoom,zoom/2); document.getElementById('zval').textContent=zoom>=1?zoom+'×':Math.round(zoom*100)+'%';
     buildBars(); buildRuler(); updateMk();
     sc.scrollLeft=Math.max(0,t2px(cT)-sc.clientWidth/2);
   }
+}
+function scrollToLiveEnd(){
+  if(!isLive||!dur) return;
+  const sc=document.getElementById('tlscroll');
+  const endPx=t2px(dur);
+  if(endPx>sc.scrollLeft+sc.clientWidth*0.85) sc.scrollLeft=endPx-sc.clientWidth*0.75;
 }
 
 function updateMk(){
