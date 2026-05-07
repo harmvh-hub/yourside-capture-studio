@@ -1483,7 +1483,7 @@ let tlUserScroll=false, tlUserScrollTimer=null, tlLastAutoScroll=-1;
     if(Math.abs(sc.scrollLeft-tlLastAutoScroll)<1.5)return; // was our own programmatic scroll
     tlUserScroll=true;
     clearTimeout(tlUserScrollTimer);
-    tlUserScrollTimer=setTimeout(()=>tlUserScroll=false,2000);
+    tlUserScrollTimer=setTimeout(()=>tlUserScroll=false,15000);
   },{passive:true});
 })();
 
