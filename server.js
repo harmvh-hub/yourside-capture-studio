@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION_NUM = '2.16.10';
+const VERSION_NUM = '2.17.0';
 const GODS = ['Zeus','Hera','Athena','Apollo','Artemis','Ares','Aphrodite','Hermes','Hephaestus','Poseidon','Demeter','Dionysus','Hades','Persephone','Hestia','Eos','Helios','Selene','Nike','Tyche','Nemesis','Iris','Eris','Morpheus','Hypnos','Eros','Pan','Proteus','Triton','Nyx'];
 const VERSION = `${VERSION_NUM} (${GODS[Math.floor(Math.random()*GODS.length)]})`;
 const PORT           = process.env.PORT           || 3000;
@@ -398,11 +398,12 @@ const server = http.createServer(async(req,res)=>{
     const mp4File=path.join(RECORDINGS_DIR,`${id}.mp4`);
     sessions.set(id,{proc:null,relay:null,hlsDir,mp4File,startTime:Date.now(),projectId,status:'recording',hlsReady:false,lastTimecode:null,stats:{}});
 
-    // srt-live-transmit: SRT source → stdout (pipe to FFmpeg), JSON stats → stderr
-    const relay=spawn('srt-live-transmit',['-s','300','-pf','json','-statsout','/proc/self/fd/2','-q',srtUrl,'file://con'],{stdio:['ignore','pipe','pipe']});
+    // srt-live-transmit: SRT source → UDP local port, JSON stats → stdout
+    const localPort=22000+Math.floor(Math.random()*3000);
+    const relay=spawn('srt-live-transmit',['-s','300','-pf','json','-q',srtUrl,`udp://127.0.0.1:${localPort}?pkt_size=1316`],{stdio:['ignore','pipe','pipe']});
     sessions.get(id).relay=relay;
     let relayBuf='';
-    relay.stderr.on('data',d=>{
+    const onRelayData=d=>{
       const s=sessions.get(id); if(!s)return;
       relayBuf+=d.toString();
       let nl;
@@ -419,13 +420,14 @@ const server = http.createServer(async(req,res)=>{
           s.stats.ts=Date.now();
         }catch{}
       }
-    });
+    };
+    relay.stdout.on('data',onRelayData);
+    relay.stderr.on('data',onRelayData);
     relay.on('error',()=>{});
 
-    // FFmpeg reads from stdin (piped from relay.stdout)
-    const proc=spawn('ffmpeg',['-y','-fflags','+discardcorrupt+genpts','-analyzeduration','2000000','-probesize','2000000','-i','pipe:0','-sn','-c:v','libx264','-preset','ultrafast','-b:v',`${proj.video_bitrate||4000}k`,'-c:a','aac','-b:a',`${proj.audio_bitrate||128}k`,'-f','hls','-hls_time','2','-hls_list_size','0','-hls_flags','append_list','-hls_segment_filename',path.join(hlsDir,'seg%05d.ts'),path.join(hlsDir,'stream.m3u8')],{stdio:['pipe','pipe','pipe']});
+    // FFmpeg reads from local UDP
+    const proc=spawn('ffmpeg',['-y','-fflags','+discardcorrupt+genpts','-analyzeduration','2000000','-probesize','2000000','-i',`udp://127.0.0.1:${localPort}?fifo_size=5000000&overrun_nonfatal=1`,'-sn','-c:v','libx264','-preset','ultrafast','-b:v',`${proj.video_bitrate||4000}k`,'-c:a','aac','-b:a',`${proj.audio_bitrate||128}k`,'-f','hls','-hls_time','2','-hls_list_size','0','-hls_flags','append_list','-hls_segment_filename',path.join(hlsDir,'seg%05d.ts'),path.join(hlsDir,'stream.m3u8')],{stdio:['ignore','pipe','pipe']});
     sessions.get(id).proc=proc;
-    relay.stdout.pipe(proc.stdin);
     proc.stderr.on('data',d=>{
       const t=d.toString(),s=sessions.get(id); if(!s)return;
       const logLines=t.split('\n').filter(l=>{const lt=l.trim();return lt&&!lt.match(/^\[hls\s/i);});
