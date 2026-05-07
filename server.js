@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION_NUM = '2.17.0';
+const VERSION_NUM = '2.17.1';
 const GODS = ['Zeus','Hera','Athena','Apollo','Artemis','Ares','Aphrodite','Hermes','Hephaestus','Poseidon','Demeter','Dionysus','Hades','Persephone','Hestia','Eos','Helios','Selene','Nike','Tyche','Nemesis','Iris','Eris','Morpheus','Hypnos','Eros','Pan','Proteus','Triton','Nyx'];
 const VERSION = `${VERSION_NUM} (${GODS[Math.floor(Math.random()*GODS.length)]})`;
 const PORT           = process.env.PORT           || 3000;
@@ -318,6 +318,7 @@ const server = http.createServer(async(req,res)=>{
   if(req.method==='POST'&&p==='/api/users'){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); const{username,password,role,email}=await parseBody(req); if(!username||!password)return jres(res,400,{error:'Missing fields'}); try{ const id=uuid(); db.prepare("INSERT INTO users (id,username,password_hash,role,email) VALUES (?,?,?,?,?)").run(id,username,hashPw(password),role||'editor',email||''); if(email){ sendMail(email,`Your YourSide Capture Studio account`,`Hi ${username},\n\nYour account has been created.\n\nUsername: ${username}\nPassword: ${password}\nURL: (ask your administrator)\n\nPlease change your password after first login.\n`).catch(()=>{}); } return jres(res,200,{id,username,role:role||'editor'}); }catch{ return jres(res,400,{error:'Username exists'}); } }
   if(req.method==='PUT'&&p.startsWith('/api/users/')){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); const id=p.replace('/api/users/',''); const{username,password,role}=await parseBody(req); if(password){ if(password.length<4)return jres(res,400,{error:'Min 4 chars'}); if(username){db.prepare('UPDATE users SET username=?,password_hash=?,role=? WHERE id=?').run(username,hashPw(password),role,id);}else{db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hashPw(password),id);} }else if(username){db.prepare('UPDATE users SET username=?,role=? WHERE id=?').run(username,role,id);} return jres(res,200,{ok:true}); }
   if(req.method==='DELETE'&&p.startsWith('/api/users/')){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); const id=p.replace('/api/users/',''); db.prepare('DELETE FROM users WHERE id=?').run(id); db.prepare('DELETE FROM sessions WHERE user_id=?').run(id); return jres(res,200,{deleted:true}); }
+  if(req.method==='GET'&&p.match(/^\/api\/users\/[^/]+\/projects$/)){ if(au.role!=='admin')return jres(res,403,{error:'Admin only'}); const uid=p.split('/')[3]; return jres(res,200,{projects:db.prepare('SELECT p.id,p.name FROM project_members pm JOIN projects p ON p.id=pm.project_id WHERE pm.user_id=? ORDER BY p.name').all(uid)}); }
 
   // Projects
   if(req.method==='GET'&&p==='/api/projects'){ const rows=au.role==='admin'?db.prepare('SELECT p.*,u.username FROM projects p JOIN users u ON u.id=p.user_id ORDER BY p.created_at DESC').all():db.prepare('SELECT p.*,u.username FROM projects p JOIN users u ON u.id=p.user_id WHERE p.id IN (SELECT project_id FROM project_members WHERE user_id=?) ORDER BY p.created_at DESC').all(au.user_id); return jres(res,200,{projects:rows}); }

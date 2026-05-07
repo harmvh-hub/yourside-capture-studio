@@ -587,6 +587,22 @@ video#preview{max-width:100%;max-height:100%;border-radius:var(--r2);background:
   </div>
 </div>
 
+<!-- USER PROJECTS MODAL -->
+<div class="modalbg" id="userProjModal">
+  <div class="modal">
+    <h3>📁 Projects for <span id="upUsername"></span></h3>
+    <input type="hidden" id="upUserId">
+    <div id="upProjList" style="margin-bottom:8px;min-height:24px"></div>
+    <div class="frow" style="gap:6px">
+      <select id="upAddProjSel" style="flex:1;font-size:13px"></select>
+      <button class="btn bprimary bsm" onclick="addUserProj()">+ Add</button>
+    </div>
+    <div class="frow" style="margin-top:14px">
+      <button class="btn bghost bfull" onclick="closeModal('userProjModal')">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- RENAME RECORDING MODAL -->
 <div class="modalbg" id="renameRecModal">
   <div class="modal">
@@ -1071,6 +1087,7 @@ async function loadUsers(){
       </div>
       <div class="lacts">
         ${mfaBtn}
+        ${isAdmin?`<button class="ibtn" title="Manage projects" onclick="openUserProjects('${u.id}','${u.username}')">📁</button>`:''}
         ${isAdmin?`<button class="ibtn" onclick="promptChangePw('${u.id}','${u.username}')">🔑</button>`:''}
         ${isAdmin?`<button class="ibtn d" onclick="delUser('${u.id}','${u.username}')">🗑</button>`:''}
       </div>
@@ -1098,6 +1115,36 @@ async function changeMyPw(){
   if(r.error){toast(r.error,'err');return}
   document.getElementById('pwCur').value=''; document.getElementById('pwNew').value=''; document.getElementById('pwCon').value='';
   toast('Password changed','ok');
+}
+
+// ── USER PROJECT ASSIGNMENT ───────────────────────────────────────────────────
+async function openUserProjects(userId,username){
+  document.getElementById('upUserId').value=userId;
+  document.getElementById('upUsername').textContent=username;
+  document.getElementById('userProjModal').classList.add('show');
+  await loadUserProjs(userId);
+}
+async function loadUserProjs(userId){
+  const [dp,da]=await Promise.all([api('GET','/api/users/'+userId+'/projects'),api('GET','/api/projects')]);
+  const assigned=dp.projects||[], all=da.projects||[];
+  const assignedIds=new Set(assigned.map(p=>p.id));
+  document.getElementById('upProjList').innerHTML=assigned.length
+    ?assigned.map(p=>`<div class="frow" style="justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)"><span style="font-size:13px">${p.name}</span><button class="ibtn d" onclick="removeUserProj('${p.id}','${userId}')">✕</button></div>`).join('')
+    :'<div style="font-size:12px;color:var(--text3);padding:4px 0">No projects assigned</div>';
+  const sel=document.getElementById('upAddProjSel');
+  const avail=all.filter(p=>!assignedIds.has(p.id));
+  sel.innerHTML=avail.length?avail.map(p=>`<option value="${p.id}">${p.name}</option>`).join(''):'<option value="">— all assigned —</option>';
+  sel.disabled=!avail.length;
+}
+async function addUserProj(){
+  const userId=document.getElementById('upUserId').value, projId=document.getElementById('upAddProjSel').value;
+  if(!projId)return;
+  await api('POST','/api/projects/'+projId+'/members',{userId});
+  await loadUserProjs(userId);
+}
+async function removeUserProj(projId,userId){
+  await api('DELETE','/api/projects/'+projId+'/members/'+userId);
+  await loadUserProjs(userId);
 }
 
 // ── MFA ──────────────────────────────────────────────────────────────────────
