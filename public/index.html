@@ -1415,10 +1415,10 @@ function zOut(){
   }
 }
 function scrollToLiveEnd(){
-  if(!isLive||!dur) return;
+  if(!isLive||!dur||tlUserScroll) return;
   const sc=document.getElementById('tlscroll');
   const endPx=t2px(dur);
-  if(endPx>sc.scrollLeft+sc.clientWidth*0.85) sc.scrollLeft=endPx-sc.clientWidth*0.75;
+  if(endPx>sc.scrollLeft+sc.clientWidth*0.85){ tlLastAutoScrollTime=Date.now(); sc.scrollLeft=endPx-sc.clientWidth*0.75; }
 }
 
 function updateMk(){
