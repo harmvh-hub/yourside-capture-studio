@@ -1511,7 +1511,7 @@ vid.addEventListener('timeupdate',()=>{
   const sc=document.getElementById('tlscroll');
   const px=t2px(t);
   phEl.style.left=px+'px';
-  if(!tlUserScroll&&(px>sc.scrollLeft+sc.clientWidth-80||px<sc.scrollLeft+20)){ tlLastAutoScrollTime=Date.now(); sc.scrollLeft=Math.max(0,px-sc.clientWidth*.2); }
+  if(!tlUserScroll&&!tlAutoScrollActive&&(px>sc.scrollLeft+sc.clientWidth-80||px<sc.scrollLeft+20)){ tlLastAutoScrollTime=Date.now(); sc.scrollLeft=Math.max(0,px-sc.clientWidth*.2); }
   if(!isLive){ const tc=livPausedTC(); document.getElementById('tcdis').textContent=tc; document.getElementById('tcov').textContent=tc; }
 });
 vid.addEventListener('seeked',()=>{
