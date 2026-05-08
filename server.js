@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { DatabaseSync }    = require('node:sqlite');
 
-const VERSION_NUM = '2.17.6';
+const VERSION_NUM = '2.18.0';
 const GODS = ['Zeus','Hera','Athena','Apollo','Artemis','Ares','Aphrodite','Hermes','Hephaestus','Poseidon','Demeter','Dionysus','Hades','Persephone','Hestia','Eos','Helios','Selene','Nike','Tyche','Nemesis','Iris','Eris','Morpheus','Hypnos','Eros','Pan','Proteus','Triton','Nyx'];
 const VERSION = `${VERSION_NUM} (${GODS[Math.floor(Math.random()*GODS.length)]})`;
 const PORT           = process.env.PORT           || 3000;
@@ -763,5 +763,24 @@ const server = http.createServer(async(req,res)=>{
 
   jres(res,404,{error:'Route not found'});
 });
+
+// Recover any HLS recordings that were interrupted before finaliseMp4 completed
+(async()=>{
+  if(!fs.existsSync(RECORDINGS_DIR))return;
+  for(const entry of fs.readdirSync(RECORDINGS_DIR,{withFileTypes:true})){
+    if(!entry.isDirectory())continue;
+    const id=entry.name;
+    const hlsDir=path.join(RECORDINGS_DIR,id);
+    const m3u8=path.join(hlsDir,'stream.m3u8');
+    const mp4File=path.join(RECORDINGS_DIR,id+'.mp4');
+    if(!fs.existsSync(m3u8)||fs.existsSync(mp4File))continue;
+    // Check there are actual segments (not just an empty m3u8)
+    const content=fs.readFileSync(m3u8,'utf8');
+    if(!content.split('\n').some(l=>l.trim()&&!l.startsWith('#')))continue;
+    console.log(`  ↻ Recovering interrupted recording ${id}…`);
+    try{ await finaliseMp4(hlsDir,mp4File,null); console.log(`  ✓ Recovered ${id}`); }
+    catch(e){ console.log(`  ✗ Recovery failed for ${id}: ${e.message}`); }
+  }
+})();
 
 server.listen(PORT,()=>{ console.log(`\n🎬 YourSide Capture Studio v${VERSION}  →  http://localhost:${PORT}\n   Login: admin / admin\n`); });

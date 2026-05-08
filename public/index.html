@@ -1362,7 +1362,7 @@ function buildBars(){
   document.getElementById('tlbars').innerHTML=Array.from({length:cnt},(_,i)=>{
     let h;
     if(wf&&wf.length){ const idx=Math.floor((i/cnt)*wf.length); h=8+wf[idx]*80; }
-    else{ h=12+Math.abs(Math.sin(i*.38)*48+Math.sin(i*1.07)*16+(Math.random()*18-9)); }
+    else{ h=12+Math.abs(Math.sin(i*.38)*48+Math.sin(i*1.07)*16+Math.sin(i*.73)*9); }
     return`<div class="tlbar" style="height:${Math.min(100,h)}%;width:${Math.max(2,Math.round(totalPx/cnt)-1)}px"></div>`;
   }).join('');
   requestAnimationFrame(renderClipOverlays);
@@ -1414,11 +1414,17 @@ function zOut(){
     sc.scrollLeft=Math.max(0,t2px(cT)-sc.clientWidth/2);
   }
 }
+let tlAutoScrollActive=false, tlAutoScrollTimer=null;
 function scrollToLiveEnd(){
   if(!isLive||!dur||tlUserScroll) return;
   const sc=document.getElementById('tlscroll');
   const endPx=t2px(dur);
-  if(endPx>sc.scrollLeft+sc.clientWidth*0.85){ tlLastAutoScrollTime=Date.now(); sc.scrollLeft=endPx-sc.clientWidth*0.75; }
+  if(endPx>sc.scrollLeft+sc.clientWidth*0.85){
+    tlAutoScrollActive=true;
+    clearTimeout(tlAutoScrollTimer);
+    tlAutoScrollTimer=setTimeout(()=>tlAutoScrollActive=false,600);
+    sc.scrollTo({left:endPx-sc.clientWidth*0.75,behavior:'smooth'});
+  }
 }
 
 function updateMk(){
@@ -1483,7 +1489,7 @@ let tlUserScroll=false, tlUserScrollTimer=null, tlLastAutoScrollTime=0;
 (()=>{
   const sc=document.getElementById('tlscroll');
   sc.addEventListener('scroll',()=>{
-    if(Date.now()-tlLastAutoScrollTime<100)return; // was a recent programmatic scroll
+    if(tlAutoScrollActive||Date.now()-tlLastAutoScrollTime<100)return; // was a programmatic scroll
     tlUserScroll=true;
     clearTimeout(tlUserScrollTimer);
     tlUserScrollTimer=setTimeout(()=>{
