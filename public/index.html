@@ -1414,17 +1414,11 @@ function zOut(){
     sc.scrollLeft=Math.max(0,t2px(cT)-sc.clientWidth/2);
   }
 }
-let tlAutoScrollActive=false, tlAutoScrollTimer=null;
 function scrollToLiveEnd(){
   if(!isLive||!dur||tlUserScroll) return;
   const sc=document.getElementById('tlscroll');
   const endPx=t2px(dur);
-  if(endPx>sc.scrollLeft+sc.clientWidth*0.85){
-    tlAutoScrollActive=true;
-    clearTimeout(tlAutoScrollTimer);
-    tlAutoScrollTimer=setTimeout(()=>tlAutoScrollActive=false,600);
-    sc.scrollTo({left:endPx-sc.clientWidth*0.75,behavior:'smooth'});
-  }
+  if(endPx>sc.scrollLeft+sc.clientWidth*0.85){ tlLastAutoScrollTime=Date.now(); sc.scrollLeft=endPx-sc.clientWidth*0.75; }
 }
 
 function updateMk(){
@@ -1489,7 +1483,7 @@ let tlUserScroll=false, tlUserScrollTimer=null, tlLastAutoScrollTime=0;
 (()=>{
   const sc=document.getElementById('tlscroll');
   sc.addEventListener('scroll',()=>{
-    if(tlAutoScrollActive||Date.now()-tlLastAutoScrollTime<100)return; // was a programmatic scroll
+    if(Date.now()-tlLastAutoScrollTime<100)return; // was a programmatic scroll
     tlUserScroll=true;
     clearTimeout(tlUserScrollTimer);
     tlUserScrollTimer=setTimeout(()=>{
@@ -1511,7 +1505,7 @@ vid.addEventListener('timeupdate',()=>{
   const sc=document.getElementById('tlscroll');
   const px=t2px(t);
   phEl.style.left=px+'px';
-  if(!tlUserScroll&&!tlAutoScrollActive&&(px>sc.scrollLeft+sc.clientWidth-80||px<sc.scrollLeft+20)){ tlLastAutoScrollTime=Date.now(); sc.scrollLeft=Math.max(0,px-sc.clientWidth*.2); }
+  if(!tlUserScroll&&(px>sc.scrollLeft+sc.clientWidth-80||px<sc.scrollLeft+20)){ tlLastAutoScrollTime=Date.now(); sc.scrollLeft=Math.max(0,px-sc.clientWidth*.2); }
   if(!isLive){ const tc=livPausedTC(); document.getElementById('tcdis').textContent=tc; document.getElementById('tcov').textContent=tc; }
 });
 vid.addEventListener('seeked',()=>{
