@@ -1476,13 +1476,14 @@ document.addEventListener('mousemove',e=>{
 document.addEventListener('mouseup',()=>drag=null);
 
 // Allow user to manually scroll the timeline during playback.
-// When the lock expires, seek video to the visible scroll position and pause
-// instead of snapping the view back to the current playhead.
-let tlUserScroll=false, tlUserScrollTimer=null, tlLastAutoScroll=-1;
+// When the lock expires, seek video to the visible scroll position and pause.
+// Use a timestamp guard instead of value comparison to avoid race conditions
+// where rapid timeupdate fires overwrite tlLastAutoScrollTime before scroll events fire.
+let tlUserScroll=false, tlUserScrollTimer=null, tlLastAutoScrollTime=0;
 (()=>{
   const sc=document.getElementById('tlscroll');
   sc.addEventListener('scroll',()=>{
-    if(Math.abs(sc.scrollLeft-tlLastAutoScroll)<1.5)return; // was our own programmatic scroll
+    if(Date.now()-tlLastAutoScrollTime<100)return; // was a recent programmatic scroll
     tlUserScroll=true;
     clearTimeout(tlUserScrollTimer);
     tlUserScrollTimer=setTimeout(()=>{
@@ -1504,7 +1505,7 @@ vid.addEventListener('timeupdate',()=>{
   const sc=document.getElementById('tlscroll');
   const px=t2px(t);
   phEl.style.left=px+'px';
-  if(!tlUserScroll&&(px>sc.scrollLeft+sc.clientWidth-80||px<sc.scrollLeft+20)){ tlLastAutoScroll=Math.max(0,px-sc.clientWidth*.2); sc.scrollLeft=tlLastAutoScroll; }
+  if(!tlUserScroll&&(px>sc.scrollLeft+sc.clientWidth-80||px<sc.scrollLeft+20)){ tlLastAutoScrollTime=Date.now(); sc.scrollLeft=Math.max(0,px-sc.clientWidth*.2); }
   if(!isLive){ const tc=livPausedTC(); document.getElementById('tcdis').textContent=tc; document.getElementById('tcov').textContent=tc; }
 });
 vid.addEventListener('seeked',()=>{
