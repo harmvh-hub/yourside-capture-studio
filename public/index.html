@@ -1416,6 +1416,8 @@ function zOut(){
 }
 function scrollToLiveEnd(){
   if(!isLive||!dur||tlUserScroll) return;
+  // Don't fight timeupdate: if playhead is >10s behind live end the user is replaying earlier content
+  if(dur-vid.currentTime>10) return;
   const sc=document.getElementById('tlscroll');
   const endPx=t2px(dur);
   if(endPx>sc.scrollLeft+sc.clientWidth*0.85){ tlLastAutoScrollTime=Date.now(); sc.scrollLeft=endPx-sc.clientWidth*0.75; }
